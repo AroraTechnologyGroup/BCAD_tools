@@ -29,16 +29,6 @@ def create_sql_connection(d, s, p, db, u, pw):
     return d
 
 
-def create_sde_connection(out_folder_path, name, database_platform, inst, kwargs):
-    # delete the sde file if it exists
-    loc = os.path.join(out_folder, out_name)
-    if os.path.exists(loc):
-        os.remove(loc)
-
-    sd = arcpy.CreateDatabaseConnection_management(out_folder_path, name, database_platform, inst, **kwargs)
-    return sd
-
-
 def compare_fields(read_wc, write_wc):
     """Compare the fields between the tables to catch a schema change"""
     r_table = ""
@@ -69,112 +59,6 @@ def compare_fields(read_wc, write_wc):
     return [r_table, w_table]
 
 
-def count_pid(in_table):
-    parcel_ids = []
-    read_cursor = da.SearchCursor(in_table, 'ParcelID')
-    for _row in read_cursor:
-        parcel_ids.append(_row[0])
-    del read_cursor
-
-    _cnt = Counter()
-    for _pid in parcel_ids:
-        _cnt[_pid] += 1
-
-    items = dict(_cnt)
-    return items
-
-
-def update_table(parcel_id, n_rows, remove_rows, in_table, fields):
-    try:
-        # remove read rows that exist in the target table
-        def compare_cells(_replace, _index, t_line, comp_rows):
-            comp_row = comp_rows[_index]
-            if _index:
-                # compare row to previous rows if index != 0
-                if t_line in comp_rows:
-                    # exit the function if the row already exists in the reader rows
-                    # all filtering should be done before entering the cursor so this should not
-                    # ever return at this point
-                    return 0, 0
-
-            attr = list(t_line)
-            comp = list(comp_row)
-            zipped = zip(attr, comp)
-            new_row = []
-
-            for tup in zipped:
-                new_row.append(tup[1])
-                if tup[0] != tup[1]:
-                    _replace += 1
-
-            return _replace, new_row
-
-        def swap_rows(input_rows, _rem_rows):
-            for _row in input_rows:
-                index = input_rows.index(_row)
-                replace = 0
-                edit.startOperation()
-                with da.UpdateCursor(in_table, fields, "ParcelID='{}'".format(parcel_id)) as cursor:
-                    for line in cursor:
-                        # update all rows from the remove_rows list
-                        if line in _rem_rows:
-                            replace, n_row = compare_cells(replace, index, line, n_rows)
-                            if replace:
-                                cursor.updateRow(n_row)
-                                break
-                edit.stopOperation()
-
-        def delete_rows(_rem_rows):
-            edit.startOperation()
-            with da.UpdateCursor(in_table, fields, "ParcelID='{}'".format(parcel_id)) as cursor:
-                for line in cursor:
-                    # delete all rows from the input list
-                    if line in _rem_rows:
-                        cursor.deleteRow(line)
-
-        # use the update cursor to update the rem_rows with the in_rows values
-        if len(n_rows) == len(remove_rows):
-            swap_rows(n_rows, remove_rows)
-            pass
-
-        elif len(n_rows) > len(remove_rows):
-            sl1 = n_rows[:len(remove_rows)]
-            sl2 = n_rows[len(remove_rows):]
-
-            swap_rows(sl1, remove_rows)
-
-            insert_rows(sl2, in_table)
-
-        elif len(n_rows) < len(remove_rows):
-            sl1 = remove_rows[:len(n_rows)]
-            sl2 = remove_rows[len(n_rows):]
-
-            swap_rows(n_rows, sl1)
-
-            delete_rows(sl2)
-
-    except Exception as f:
-        print f.message
-
-    return
-
-
-def insert_rows(input_rows, table, fields):
-    try:
-        edit.startOperation()
-
-        insert = da.InsertCursor(table, fields)
-
-        for _row in input_rows:
-            insert.insertRow(_row)
-        del insert
-
-        edit.stopOperation()
-
-    except Exception as h:
-        print h.message
-
-
 def create_memory_objects():
     # create variables for table and building feature class memory objects
     memory_table = "in_memory\\noise_mit"
@@ -187,6 +71,7 @@ def create_memory_objects():
         arcpy.Delete_management(memory_buildings)
     return memory_table, memory_buildings
 
+
 # connection info for the odbc connection
 driver = 'SQL Server Native Client 11.0'
 server = r'ARORALAPTOP50\SDESQLEXPRESS'
@@ -196,12 +81,12 @@ uid = 'Richard'
 pwd = 'AroraGIS123'
 
 # connection info for the esri sde connection
-out_folder = env.scratchFolder
-out_name = "Weaver.sde"
-platform = "SQL_SERVER"
-instance = server
+out_f = env.scratchFolder
+out_n = "Weaver.sde"
+plat = "SQL_SERVER"
+inst = server
 
-options = {"account_authentication": "DATABASE_AUTH",
+opt = {"account_authentication": "DATABASE_AUTH",
            "username": uid,
            "password": pwd,
            "save_user_pass": "SAVE_USERNAME",
@@ -210,106 +95,337 @@ options = {"account_authentication": "DATABASE_AUTH",
            "version_type": "TRANSACTIONAL",
            "version": "dbo.Default",
            "date": ""}
+
+# create a new version to put edits into
+p_version = "dbo.DEFAULT"
+v_name = "{}.NoiseMit".format(uid.upper())
+n_name = "NoiseMit"
+bldgs = r"DEVELOPMENT_BCAD.DBO.NoiseMitigation\\DEVELOPMENT_BCAD.DBO.Building_Information"
+update_atts = []
+folio_num_field = ""
+
+
+class SdeConnector:
+    def __init__(self, out_folder, out_name, platform, instance, options):
+        self.out_folder = out_folder
+        self.out_name = out_name
+        self.platform = platform
+        self.instance = instance
+        self.options = options
+
+    def create_sde_connection(self):
+        # delete the sde file if it exists
+        loc = os.path.join(self.out_folder, self.out_name)
+        if os.path.exists(loc):
+            os.remove(loc)
+
+        sd = arcpy.CreateDatabaseConnection_management(self.out_folder, self.out_name, self.platform, self.instance,
+                                                       **self.options)
+        # input path to the dev sde database connection
+        target_sde = sd.getOutput(0)
+        if not os.path.exists(target_sde):
+            raise Exception("The sde file was not created")
+
+        env.workspace = target_sde
+
+        return target_sde
+
+
+class VersionManager:
+    def __init__(self, out_folder, platform, instance, target_sde, version_name, new_name, parent_version, log):
+        self.instance = instance
+        self.platform = platform
+        self.out_folder = out_folder
+        self.target_sde = target_sde
+        self.version_name = version_name
+        self.new_name = new_name
+        self.version_sde = ""
+        self.parent_version = parent_version
+        self.log = log
+        pass
+
+    def clean_previous(self):
+        # remove previous version if it exists
+        versions = da.ListVersions(self.target_sde)
+        if len(versions):
+            v_names = [v.name for v in versions]
+            if self.version_name in v_names:
+                try:
+                    arcpy.DeleteVersion_management(self.target_sde, self.version_name)
+                except:
+                    logging.info(arcpy.GetMessages())
+        else:
+            logging.info("no versions found")
+
+    def connect_version(self):
+        # create version to edit
+        # create an sde connection file to the new version
+        v_opt = opt.copy()
+        v_opt["version"] = self.version_name
+
+        # create SdeConnector object for the version
+        version_connection = SdeConnector(self.out_folder, self.new_name, self.platform, self.instance, v_opt)
+        self.version_sde = version_connection.create_sde_connection()
+        return self.version_sde
+
+    def rec_post(self):
+        workspace = self.version_sde
+        env.workspace = workspace
+        # You should be on the only user
+        userList = arcpy.ListUsers(workspace)
+        arcpy.AcceptConnections(workspace, False)
+        edit = da.Edit(self.workspace)
+        edit.startEditing()
+        edit.startOperation()
+        arcpy.ReconcileVersions_management(workspace, "ALL_VERSIONS", self.parent_version,
+                                           self.version_name, "LOCK_ACQUIRED",
+                                           "ABORT_CONFLICTS", "BY_OBJECT", "FAVOR_TARGET_VERSION",
+                                           "POST", "KEEP_VERSION")
+        edit.stopOperation()
+        edit.stopEditing(True)
+        env.workspace = self.target_sde
+        self.clean_previous()
+        return True
+
+
+class WeaverUpdater:
+    def __init__(self, write_table, read_table, version_sde):
+        self.write_table = write_table
+        self.read_table = read_table
+        self.version_sde = version_sde
+        self.items = {}
+        self.all_fields = []
+        pass
+
+    def count_pid(self):
+        parcel_ids = []
+        read_cursor = da.SearchCursor(self.read_table, 'ParcelID')
+        for _row in read_cursor:
+            parcel_ids.append(_row[0])
+        del read_cursor
+
+        _cnt = Counter()
+        for _pid in parcel_ids:
+            _cnt[_pid] += 1
+
+        self.items = dict(_cnt)
+        return self.items
+
+    @staticmethod
+    def get_rows(in_table, _pid):
+        reader = da.SearchCursor(in_table, "*", "ParcelID='{}'".format(_pid))
+        # rows contains all of the rows with the pid
+        rows = []
+        for row in reader:
+            rows.append(row)
+        del reader
+        return rows
+
+    def insert_rows(self, input_rows):
+        try:
+            edit.startOperation()
+
+            insert = da.InsertCursor(self.write_table, self.all_fields)
+
+            for _row in input_rows:
+                insert.insertRow(_row)
+            del insert
+
+            edit.stopOperation()
+
+        except Exception as h:
+            print h.message
+
+    @staticmethod
+    def compare_cells(_replace, _index, t_line, comp_rows):
+        comp_row = comp_rows[_index]
+        if _index:
+            # compare row to previous rows if index != 0
+            if t_line in comp_rows:
+                # exit the function if the row already exists in the reader rows
+                # all filtering should be done before entering the cursor so this should not
+                # ever return at this point
+                return 0, 0
+
+        attr = list(t_line)
+        comp = list(comp_row)
+        zipped = zip(attr, comp)
+        n_row = []
+
+        for tup in zipped:
+            new_row.append(tup[1])
+            if tup[0] != tup[1]:
+                _replace += 1
+
+        return _replace, n_row
+
+    def swap_rows(self, input_rows, _rem_rows, parcel_id):
+        for _row in input_rows:
+            index = input_rows.index(_row)
+            replace = 0
+            edit.startOperation()
+            with da.UpdateCursor(self.write_table, self.all_fields, "ParcelID='{}'".format(parcel_id)) as _cursor:
+                for line in _cursor:
+                    # update all rows from the remove_rows list
+                    if line in _rem_rows:
+                        replace, n_row = self.compare_cells(replace, index, line, input_rows)
+                        if replace:
+                            _cursor.updateRow(n_row)
+                            break
+            edit.stopOperation()
+
+    def delete_rows(self, _rem_rows, parcel_id):
+        edit.startOperation()
+        with da.UpdateCursor(self.write_table, self.all_fields, "ParcelID='{}'".format(parcel_id)) as _cursor:
+            for line in cursor:
+                # delete all rows from the input list
+                if line in _rem_rows:
+                    _cursor.deleteRow(line)
+
+    def update_table(self, parcel_id, n_rows, remove_rows):
+        try:
+            # use the update cursor to update the rem_rows with the in_rows values
+            if len(n_rows) == len(remove_rows):
+                self.swap_rows(n_rows, remove_rows, parcel_id)
+                pass
+
+            elif len(n_rows) > len(remove_rows):
+                sl1 = n_rows[:len(remove_rows)]
+                sl2 = n_rows[len(remove_rows):]
+
+                self.swap_rows(sl1, remove_rows, parcel_id)
+
+                self.insert_rows(sl2)
+
+            elif len(n_rows) < len(remove_rows):
+                sl1 = remove_rows[:len(n_rows)]
+                sl2 = remove_rows[len(n_rows):]
+
+                self.swap_rows(n_rows, sl1, parcel_id)
+
+                self.delete_rows(sl2, parcel_id)
+
+        except Exception as f:
+            print f.message
+
+        return
+
+    def perform_update(self):
+        # begin edit session
+        edit = da.Editor(self.version_sde)
+        edit.startEditing()
+        # work with one pid at a time
+        for pid in self.items.keys():
+            # number of rows that should exist in the target table for the pid
+            cnt = self.items[pid]
+            # pull the rows into a list
+            read_rows = self.get_rows(self.read_table, pid)
+            exist_rows = self.get_rows(self.write_table, pid)
+            read_rows.sort()
+            exist_rows.sort()
+
+            in_rows = [r for r in read_rows if r not in exist_rows]
+            rem_rows = [r for r in exist_rows if r not in read_rows]
+
+            t_fields = arcpy.ListFields(self.write_table)
+            t_fields = [t.name for t in t_fields]
+            t_fields.remove('OBJECTID')
+            self.all_fields = t_fields
+
+            # table is empty, populate it
+            if len(exist_rows) == 0:
+                edit.startOperation()
+                self.insert_rows(read_rows)
+                edit.stopOperation()
+                pass
+            # update the rows that are not identical, a complex function
+            else:
+                self.update_table(pid, in_rows, rem_rows)
+
+        edit.stopEditing(True)
+        return True
+
+
+class BuildingsUpdater:
+    def __init__(self, buildings, rel_table, update_fields, folio_field, version_sde):
+        self.buildings = buildings
+        self.version_sde = version_sde
+        building_w_space = os.path.basename(os.path.dirname(arcpy.Describe(buildings).catalogPath))
+        self.workspace = os.path.join(version_sde, building_w_space)
+        self.folio_field = folio_field
+        self.update_fields = update_fields
+        self.rel_table = rel_table
+        self.folios = []
+
+    def get_folios(self):
+        with da.SearchCursor(self.buildings, [self.folio_field]) as cursor:
+            for row in cursor:
+                self.folios.append(row[0])
+
+        return self.folios
+
+    def update_buildings(self):
+        # gather the building folio numbers
+        _folios = self.get_folios()
+        edit = da.Editor(self.workspace)
+        edit.startEditing()
+        for folio in _folios:
+            matrix = []
+            with da.SearchCursor(self.rel_table, self.update_fields, "{}='{}'".format(self.folio_field, folio)) as cursor:
+                for row in cursor:
+                    matrix.append(row)
+            comps = list(zip(*matrix))
+            edit.startOperation()
+            with da.UpdateCursor(self.buildings, self.update_fields, "{}='{}'".format(self.folio_field, folio)) as cursor:
+                for row in cursor:
+                    new_row = []
+                    for x in comps:
+                        s = set(x)
+                        if len(s) > 1:
+                            new_row.append(", ".join(s))
+                        elif len(s) == 1:
+                            new_row.append(s.pop())
+                    cursor.updateRow(new_row)
+            edit.stopOperation()
+        edit.stopEditing(True)
+        return True
+
 try:
     #cnxn = create_sql_connection(driver, server, port, database, uid, pwd)
-    sde = create_sde_connection(out_folder, out_name, platform, instance, options)
+    connection = SdeConnector(out_f, out_n, plat, inst, opt)
+    sde_file = connection.create_sde_connection()
 
-    # input path to the dev sde database connection
-    targetSDE = sde.getOutput(0)
-    if not os.path.exists(targetSDE):
-        raise Exception("The sde file was not created")
-
-    env.workspace = targetSDE
-
-    # create a new version to put edits into
-    pversion = "dbo.DEFAULT"
-    version_name = "{}.NoiseMit".format(uid.upper())
-    new_name = "NoiseMit"
-    write_table = r""
-    buildings = r"DEVELOPMENT_BCAD.DBO.NoiseMitigation\\DEVELOPMENT_BCAD.DBO.Building_Information"
-
-    read_table, write_table = compare_fields("*weaver_formatted", "*WEAVER")
+    r_table, w_table = compare_fields("*weaver_formatted", "*WEAVER")
 
     # verify that the necessary tables exist
-    for x in [read_table, write_table, buildings]:
+    for x in [r_table, w_table, bldgs]:
         if not arcpy.Exists(x):
             logging.error("the target table and the building are not found")
             raise Exception()
 
-    # build new version
-    versions = da.ListVersions(targetSDE)
+    # create VersionManager class object to connect to create new version, connect to it,
+    # and create an sde connection file, set as current workspace
+    # out_folder, platform, instance, target_sde, version_name, new_name, parent_version, log
+    version_manager = VersionManager(out_f, plat, inst, sde_file, v_name, n_name, p_version, log_name)
+    version_manager.clean_previous()
+    version_sde_file = version_manager.connect_version()
 
-    if len(versions):
-        v_names = [v.name for v in versions]
-        if version_name in v_names:
-            try:
-                arcpy.DeleteVersion_management(targetSDE, version_name)
-            except:
-                logging.info(arcpy.GetMessages())
-    else:
-        logging.info("no versions found")
+    # create WeaverUpdater class object
+    weaver_updater = WeaverUpdater(w_table, r_table, version_sde_file)
 
-    arcpy.CreateVersion_management(targetSDE, pversion, new_name)
-
-    # create an sde connection file to the new version
-    out_name = "{}.sde".format(uid)
-    options["version"] = version_name
-    sde_version = create_sde_connection(out_folder, out_name, platform, instance, options)
-    # input path to the dev sde database connection
-    version_SDE = sde_version.getOutput(0)
-    if not os.path.exists(version_SDE):
-        raise Exception("The sde file was not created")
-
-    # connect using the new sde_version file
-    env.workspace = version_SDE
     # get the number for rows per parcel ID
-    pid_list = count_pid(read_table)
-    # begin edit session
-    edit = da.Editor(version_SDE)
-    edit.startEditing()
-    # work with one pid at a time
-    for pid in pid_list.keys():
-        # number of rows that should be exist in the target table for the pid
-        cnt = pid_list[pid]
-        # pull the rows into a list
+    pid_list = weaver_updater.count_pid()
+    # should return True when editing is complete
+    table_updated = weaver_updater.perform_update()
 
-        def get_rows(in_table, _pid):
-            reader = da.SearchCursor(in_table, "*", "ParcelID='{}'".format(_pid))
-            # rows contains all of the rows with the pid
-            rows = []
-            for row in reader:
-                rows.append(row)
-            del reader
-            return rows
+    # create BuildingUpdater class object
+    building_updater = BuildingsUpdater(bldgs, w_table, update_atts, folio_num_field, version_sde_file)
+    folios = building_updater.get_folios()
+    # should return True when editing it complete
+    buildings_updated = building_updater.update_buildings()
+    # move edits to the default version, and delete the noisemit version
+    version_manager.rec_post()
 
-        read_rows = get_rows(read_table, pid)
-        exist_rows = get_rows(write_table, pid)
-        read_rows.sort()
-        exist_rows.sort()
-
-        in_rows = [r for r in read_rows if r not in exist_rows]
-        rem_rows = [r for r in exist_rows if r not in read_rows]
-
-        t_fields = arcpy.ListFields(write_table)
-        t_fields = [t.name for t in t_fields]
-        t_fields.remove('OBJECTID')
-
-        # table is empty, populate it
-        if len(exist_rows) == 0:
-            edit.startOperation()
-            insert_rows(read_rows, write_table, t_fields)
-            edit.stopOperation()
-            pass
-
-        else:
-            update_table(pid, in_rows, rem_rows, write_table, t_fields)
-
-    edit.stopEditing(True)
-
-    # arcpy.ChangeVersion_management(write_table, "TRANSACTIONAL", version_name)
-
-    # building_layer = arcpy.MakeFeatureLayer_management(buildings, memory_buildings)
-    # arcpy.ChangeVersion_management(building_layer, "TRANSACTIONAL", version_name)
 
 except Exception as e:
     exc_type, exc_value, exc_traceback = sys.exc_info()
