@@ -59,21 +59,6 @@ def compare_fields(read_wc, write_wc):
     return [r_table, w_table]
 
 
-def create_memory_tables(read_table, write_table):
-    # create variables for table and building feature class memory objects
-    memory_read_table = {"in_memory\\weaver": read_table}
-    memory_write_table = {"in_memory\\noisemit": write_table}
-    d = {}
-    # Delete the in memory objects if they were not cleaned during previous run
-    for k, v in [memory_read_table, memory_write_table]:
-        if arcpy.Exists(k):
-            arcpy.Delete_management(k)
-            layer = arcpy.MakeTableView_management(v, k)
-            d[k.split("\\")[-1]] = layer
-
-    return d
-
-
 # connection info for the odbc connection
 driver = 'SQL Server Native Client 11.0'
 server = r'ARORALAPTOP50\SDESQLEXPRESS'
@@ -430,12 +415,30 @@ try:
             raise Exception()
 
     # Check if read table and write table are identical
-    mem_objects = create_memory_tables(r_table, w_table)
-    
-    compare_result = arcpy.FeatureCompare_management(mem_objects['weaver'], mem_objects['noisemit'], folio_num_field, "ATTRIBUTES_ONLY",
-                                                     ["IGNORE_RELATIONSHIPCLASSES","IGNORE_FIELDALIAS"],
-                                                     omit_field="OBJECTID", continue_compare="NO_CONTINUE_COMPARE")
-    if compare_result.getOutput(0):
+    r_rows = []
+    with da.SearchCursor(r_table, "*") as cursor:
+        for row in cursor:
+            r_rows.append(row)
+
+    compare_result = 0
+    count = 0
+    with da.SearchCursor(w_table, "*") as cursor:
+        for row in cursor:
+            if not compare_result:
+                if row[1:] in r_rows:
+                    count += 1
+                    pass
+                else:
+                    compare_result += 1
+                    break
+
+    if count != len(r_rows):
+        compare_result += 1
+
+    del r_rows
+    del count
+
+    if compare_result:
         # create VersionManager class object to create new version, connect to it,
         # and create an sde connection file, set as current workspace
         # out_folder, platform, instance, target_sde, version_name, new_name, parent_version, log
