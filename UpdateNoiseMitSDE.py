@@ -7,7 +7,7 @@ from arcpy import env
 import pyodbc
 from collections import Counter
 import traceback
-
+env.overwriteOutput = 1
 log_name = "C:\\Temp\NoiseMit_logfile.txt"
 
 logging.basicConfig(level=logging.DEBUG,
@@ -59,17 +59,19 @@ def compare_fields(read_wc, write_wc):
     return [r_table, w_table]
 
 
-def create_memory_objects():
+def create_memory_tables(read_table, write_table):
     # create variables for table and building feature class memory objects
-    memory_table = "in_memory\\noise_mit"
-    memory_buildings = "in_memory\\buildings"
-
+    memory_read_table = {"in_memory\\weaver": read_table}
+    memory_write_table = {"in_memory\\noisemit": write_table}
+    d = {}
     # Delete the in memory objects if they were not cleaned during previous run
-    if arcpy.Exists(memory_table):
-        arcpy.Delete_management(memory_table)
-    if arcpy.Exists(memory_buildings):
-        arcpy.Delete_management(memory_buildings)
-    return memory_table, memory_buildings
+    for k, v in [memory_read_table, memory_write_table]:
+        if arcpy.Exists(k):
+            arcpy.Delete_management(k)
+            layer = arcpy.MakeTableView_management(v, k)
+            d[k.split("\\")[-1]] = layer
+
+    return d
 
 
 # connection info for the odbc connection
@@ -93,7 +95,7 @@ opt = {"account_authentication": "DATABASE_AUTH",
            "database": database,
            "schema": "#",
            "version_type": "TRANSACTIONAL",
-           "version": "dbo.Default",
+           "version": "dbo.DEFAULT",
            "date": ""}
 
 # create a new version to put edits into
@@ -101,8 +103,16 @@ p_version = "dbo.DEFAULT"
 v_name = "{}.NoiseMit".format(uid.upper())
 n_name = "NoiseMit"
 bldgs = r"DEVELOPMENT_BCAD.DBO.NoiseMitigation\\DEVELOPMENT_BCAD.DBO.Building_Information"
-update_atts = []
-folio_num_field = ""
+update_atts = ["PROJECTNAM", "PHASENAME"]
+folio_num_field = "FOLIONUMBE"
+
+
+class VersionException(Exception):
+    """throw this when handling exception with managing versions"""
+    def __init__(self, *args):
+        exc_t, exc_v, exc_trace = sys.exc_info()
+        traceback.print_exception(exc_t, exc_v, exc_trace,
+                                  limit=2, file=sys.stdout)
 
 
 class SdeConnector:
@@ -153,20 +163,35 @@ class VersionManager:
                 try:
                     arcpy.DeleteVersion_management(self.target_sde, self.version_name)
                 except:
-                    logging.info(arcpy.GetMessages())
+                    raise VersionException()
         else:
             logging.info("no versions found")
 
     def connect_version(self):
         # create version to edit
-        # create an sde connection file to the new version
-        v_opt = opt.copy()
-        v_opt["version"] = self.version_name
+        versions = da.ListVersions(self.target_sde)
+        if len(versions):
+            v_names = [v.name for v in versions]
+            if self.version_name in v_names:
+                raise VersionException("Version already exists, must remove before proceeding")
+            else:
+                try:
+                    arcpy.CreateVersion_management(self.target_sde, self.parent_version, self.new_name)
+                except:
+                    raise VersionException()
 
-        # create SdeConnector object for the version
-        version_connection = SdeConnector(self.out_folder, self.new_name, self.platform, self.instance, v_opt)
-        self.version_sde = version_connection.create_sde_connection()
-        return self.version_sde
+
+            # create an sde connection file to the new version
+            v_opt = opt.copy()
+            v_opt["version"] = self.version_name
+
+            # create SdeConnector object for the version
+            version_connection = SdeConnector(self.out_folder, self.new_name, self.platform, self.instance, v_opt)
+            self.version_sde = version_connection.create_sde_connection()
+            return self.version_sde
+
+        else:
+            raise VersionException()
 
     def rec_post(self):
         workspace = self.version_sde
@@ -259,11 +284,11 @@ class WeaverUpdater:
 
         return _replace, n_row
 
-    def swap_rows(self, input_rows, _rem_rows, parcel_id):
+    def swap_rows(self, input_rows, _rem_rows, parcel_id, editor):
         for _row in input_rows:
             index = input_rows.index(_row)
             replace = 0
-            edit.startOperation()
+            editor.startOperation()
             with da.UpdateCursor(self.write_table, self.all_fields, "ParcelID='{}'".format(parcel_id)) as _cursor:
                 for line in _cursor:
                     # update all rows from the remove_rows list
@@ -272,28 +297,29 @@ class WeaverUpdater:
                         if replace:
                             _cursor.updateRow(n_row)
                             break
-            edit.stopOperation()
+            editor.stopOperation()
 
-    def delete_rows(self, _rem_rows, parcel_id):
-        edit.startOperation()
+    def delete_rows(self, _rem_rows, parcel_id, editor):
+        editor.startOperation()
         with da.UpdateCursor(self.write_table, self.all_fields, "ParcelID='{}'".format(parcel_id)) as _cursor:
-            for line in cursor:
+            for line in _cursor:
                 # delete all rows from the input list
                 if line in _rem_rows:
                     _cursor.deleteRow(line)
+        editor.startOperation()
 
-    def update_table(self, parcel_id, n_rows, remove_rows):
+    def update_table(self, parcel_id, n_rows, remove_rows, editor):
         try:
             # use the update cursor to update the rem_rows with the in_rows values
             if len(n_rows) == len(remove_rows):
-                self.swap_rows(n_rows, remove_rows, parcel_id)
+                self.swap_rows(n_rows, remove_rows, parcel_id, editor)
                 pass
 
             elif len(n_rows) > len(remove_rows):
                 sl1 = n_rows[:len(remove_rows)]
                 sl2 = n_rows[len(remove_rows):]
 
-                self.swap_rows(sl1, remove_rows, parcel_id)
+                self.swap_rows(sl1, remove_rows, parcel_id, editor)
 
                 self.insert_rows(sl2)
 
@@ -301,9 +327,9 @@ class WeaverUpdater:
                 sl1 = remove_rows[:len(n_rows)]
                 sl2 = remove_rows[len(n_rows):]
 
-                self.swap_rows(n_rows, sl1, parcel_id)
+                self.swap_rows(n_rows, sl1, parcel_id, editor)
 
-                self.delete_rows(sl2, parcel_id)
+                self.delete_rows(sl2, parcel_id, editor)
 
         except Exception as f:
             print f.message
@@ -340,7 +366,7 @@ class WeaverUpdater:
                 pass
             # update the rows that are not identical, a complex function
             else:
-                self.update_table(pid, in_rows, rem_rows)
+                self.update_table(pid, in_rows, rem_rows, edit)
 
         edit.stopEditing(True)
         return True
@@ -403,29 +429,37 @@ try:
             logging.error("the target table and the building are not found")
             raise Exception()
 
-    # create VersionManager class object to connect to create new version, connect to it,
-    # and create an sde connection file, set as current workspace
-    # out_folder, platform, instance, target_sde, version_name, new_name, parent_version, log
-    version_manager = VersionManager(out_f, plat, inst, sde_file, v_name, n_name, p_version, log_name)
-    version_manager.clean_previous()
-    version_sde_file = version_manager.connect_version()
+    # Check if read table and write table are identical
+    mem_objects = create_memory_tables(r_table, w_table)
+    
+    compare_result = arcpy.FeatureCompare_management(mem_objects['weaver'], mem_objects['noisemit'], folio_num_field, "ATTRIBUTES_ONLY",
+                                                     ["IGNORE_RELATIONSHIPCLASSES","IGNORE_FIELDALIAS"],
+                                                     omit_field="OBJECTID", continue_compare="NO_CONTINUE_COMPARE")
+    if compare_result.getOutput(0):
+        # create VersionManager class object to create new version, connect to it,
+        # and create an sde connection file, set as current workspace
+        # out_folder, platform, instance, target_sde, version_name, new_name, parent_version, log
+        version_manager = VersionManager(out_f, plat, inst, sde_file, v_name, n_name, p_version, log_name)
+        version_manager.clean_previous()
+        version_sde_file = version_manager.connect_version()
 
-    # create WeaverUpdater class object
-    weaver_updater = WeaverUpdater(w_table, r_table, version_sde_file)
+        # create WeaverUpdater class object
+        weaver_updater = WeaverUpdater(w_table, r_table, version_sde_file)
 
-    # get the number for rows per parcel ID
-    pid_list = weaver_updater.count_pid()
-    # should return True when editing is complete
-    table_updated = weaver_updater.perform_update()
+        # get the number for rows per parcel ID
+        pid_list = weaver_updater.count_pid()
+        # should return True when editing is complete
+        table_updated = weaver_updater.perform_update()
 
-    # create BuildingUpdater class object
-    building_updater = BuildingsUpdater(bldgs, w_table, update_atts, folio_num_field, version_sde_file)
-    folios = building_updater.get_folios()
-    # should return True when editing it complete
-    buildings_updated = building_updater.update_buildings()
-    # move edits to the default version, and delete the noisemit version
-    version_manager.rec_post()
-
+        # create BuildingUpdater class object
+        building_updater = BuildingsUpdater(bldgs, w_table, update_atts, folio_num_field, version_sde_file)
+        folios = building_updater.get_folios()
+        # should return True when editing it complete
+        buildings_updated = building_updater.update_buildings()
+        # move edits to the default version, and delete the noisemit version
+        version_manager.rec_post()
+    else:
+        print "The files are identical, no edits needed"
 
 except Exception as e:
     exc_type, exc_value, exc_traceback = sys.exc_info()
