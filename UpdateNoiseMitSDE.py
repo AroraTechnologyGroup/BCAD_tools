@@ -87,9 +87,10 @@ opt = {"account_authentication": "DATABASE_AUTH",
 p_version = "dbo.DEFAULT"
 v_name = "{}.NoiseMit".format(uid.upper())
 n_name = "NoiseMit"
-bldgs = r"DEVELOPMENT_BCAD.DBO.NoiseMitigation\\DEVELOPMENT_BCAD.DBO.Building_Information"
+bldgs = r"Building_Information"
 update_atts = ["PROJECTNAM", "PHASENAME"]
 folio_num_field = "FOLIONUMBE"
+dataset = "NoiseMitigation"
 
 
 class VersionException(Exception):
@@ -199,9 +200,11 @@ class VersionManager:
 
 
 class WeaverUpdater:
-    def __init__(self, write_table, read_table, version_sde):
+    #w_table, add_rows, rem_rows, version_sde_file
+    def __init__(self, write_table, read_rows, remove_rows, version_sde):
         self.write_table = write_table
-        self.read_table = read_table
+        self.read_rows = read_rows
+        self.remove_rows = remove_rows
         self.version_sde = version_sde
         self.items = {}
         self.all_fields = []
@@ -209,10 +212,9 @@ class WeaverUpdater:
 
     def count_pid(self):
         parcel_ids = []
-        read_cursor = da.SearchCursor(self.read_table, 'ParcelID')
-        for _row in read_cursor:
+
+        for _row in self.read_rows:
             parcel_ids.append(_row[0])
-        del read_cursor
 
         _cnt = Counter()
         for _pid in parcel_ids:
@@ -221,100 +223,37 @@ class WeaverUpdater:
         self.items = dict(_cnt)
         return self.items
 
-    @staticmethod
-    def get_rows(in_table, _pid):
-        reader = da.SearchCursor(in_table, "*", "ParcelID='{}'".format(_pid))
-        # rows contains all of the rows with the pid
-        rows = []
-        for row in reader:
-            rows.append(row)
-        del reader
-        return rows
-
-    def insert_rows(self, input_rows):
+    def insert_rows(self, editor):
         try:
-            edit.startOperation()
+            editor.startOperation()
 
             insert = da.InsertCursor(self.write_table, self.all_fields)
 
-            for _row in input_rows:
+            for _row in self.read_rows:
                 insert.insertRow(_row)
             del insert
 
-            edit.stopOperation()
+            editor.stopOperation()
 
         except Exception as h:
             print h.message
 
-    @staticmethod
-    def compare_cells(_replace, _index, t_line, comp_rows):
-        comp_row = comp_rows[_index]
-        if _index:
-            # compare row to previous rows if index != 0
-            if t_line in comp_rows:
-                # exit the function if the row already exists in the reader rows
-                # all filtering should be done before entering the cursor so this should not
-                # ever return at this point
-                return 0, 0
-
-        attr = list(t_line)
-        comp = list(comp_row)
-        zipped = zip(attr, comp)
-        n_row = []
-
-        for tup in zipped:
-            new_row.append(tup[1])
-            if tup[0] != tup[1]:
-                _replace += 1
-
-        return _replace, n_row
-
-    def swap_rows(self, input_rows, _rem_rows, parcel_id, editor):
-        for _row in input_rows:
-            index = input_rows.index(_row)
-            replace = 0
-            editor.startOperation()
-            with da.UpdateCursor(self.write_table, self.all_fields, "ParcelID='{}'".format(parcel_id)) as _cursor:
-                for line in _cursor:
-                    # update all rows from the remove_rows list
-                    if line in _rem_rows:
-                        replace, n_row = self.compare_cells(replace, index, line, input_rows)
-                        if replace:
-                            _cursor.updateRow(n_row)
-                            break
-            editor.stopOperation()
-
-    def delete_rows(self, _rem_rows, parcel_id, editor):
+    def delete_rows(self, parcel_id, editor):
         editor.startOperation()
         with da.UpdateCursor(self.write_table, self.all_fields, "ParcelID='{}'".format(parcel_id)) as _cursor:
             for line in _cursor:
                 # delete all rows from the input list
-                if line in _rem_rows:
+                if line in self.remove_rows:
                     _cursor.deleteRow(line)
         editor.startOperation()
 
-    def update_table(self, parcel_id, n_rows, remove_rows, editor):
+    def update_table(self, parcel_id, editor):
         try:
-            # use the update cursor to update the rem_rows with the in_rows values
-            if len(n_rows) == len(remove_rows):
-                self.swap_rows(n_rows, remove_rows, parcel_id, editor)
-                pass
-
-            elif len(n_rows) > len(remove_rows):
-                sl1 = n_rows[:len(remove_rows)]
-                sl2 = n_rows[len(remove_rows):]
-
-                self.swap_rows(sl1, remove_rows, parcel_id, editor)
-
-                self.insert_rows(sl2)
-
-            elif len(n_rows) < len(remove_rows):
-                sl1 = remove_rows[:len(n_rows)]
-                sl2 = remove_rows[len(n_rows):]
-
-                self.swap_rows(n_rows, sl1, parcel_id, editor)
-
-                self.delete_rows(sl2, parcel_id, editor)
+            # use the update cursor to remove the rem_rows
+            if len(self.remove_rows):
+                self.delete_rows(parcel_id, editor)
+            elif len(self.read_rows):
+                self.insert_rows(editor)
 
         except Exception as f:
             print f.message
@@ -327,16 +266,6 @@ class WeaverUpdater:
         edit.startEditing()
         # work with one pid at a time
         for pid in self.items.keys():
-            # number of rows that should exist in the target table for the pid
-            cnt = self.items[pid]
-            # pull the rows into a list
-            read_rows = self.get_rows(self.read_table, pid)
-            exist_rows = self.get_rows(self.write_table, pid)
-            read_rows.sort()
-            exist_rows.sort()
-
-            in_rows = [r for r in read_rows if r not in exist_rows]
-            rem_rows = [r for r in exist_rows if r not in read_rows]
 
             t_fields = arcpy.ListFields(self.write_table)
             t_fields = [t.name for t in t_fields]
@@ -344,59 +273,69 @@ class WeaverUpdater:
             self.all_fields = t_fields
 
             # table is empty, populate it
-            if len(exist_rows) == 0:
-                edit.startOperation()
-                self.insert_rows(read_rows)
-                edit.stopOperation()
+            if len(self.remove_rows) == 0:
+                self.insert_rows(edit)
                 pass
             # update the rows that are not identical, a complex function
             else:
-                self.update_table(pid, in_rows, rem_rows, edit)
+                self.update_table(pid, edit)
 
         edit.stopEditing(True)
         return True
 
 
 class BuildingsUpdater:
-    def __init__(self, buildings, rel_table, update_fields, folio_field, version_sde):
-        self.buildings = buildings
+    """buildings, w_table, folio_num_field, update_atts, version_sde_file"""
+    def __init__(self, b, rel_table, folio_field, update_fields, version_sde):
+        self.buildings = b
         self.version_sde = version_sde
-        building_w_space = os.path.basename(os.path.dirname(arcpy.Describe(buildings).catalogPath))
-        self.workspace = os.path.join(version_sde, building_w_space)
         self.folio_field = folio_field
         self.update_fields = update_fields
         self.rel_table = rel_table
         self.folios = []
 
+    def get_fields(self, in_table):
+        ups = []
+        # list fields to get the correct field name if capitalization is not identical
+        fields = arcpy.ListFields(in_table)
+        for f in fields:
+            if f.name.upper() in self.update_fields:
+                ups.append(f.name)
+        return ups
+
     def get_folios(self):
-        with da.SearchCursor(self.buildings, [self.folio_field]) as cursor:
-            for row in cursor:
-                self.folios.append(row[0])
+        with da.SearchCursor(self.buildings, [self.folio_field]) as _cursor:
+            for _row in _cursor:
+                self.folios.append(_row[0])
 
         return self.folios
 
     def update_buildings(self):
         # gather the building folio numbers
         _folios = self.get_folios()
-        edit = da.Editor(self.workspace)
+        edit = da.Editor(self.version_sde)
         edit.startEditing()
         for folio in _folios:
             matrix = []
-            with da.SearchCursor(self.rel_table, self.update_fields, "{}='{}'".format(self.folio_field, folio)) as cursor:
-                for row in cursor:
-                    matrix.append(row)
+
+            fields = self.get_fields(self.rel_table)
+            with da.SearchCursor(self.rel_table, fields, "FolioNumber='{}'".format(self.folio_field.capitalize())) as _cursor:
+                for _row in _cursor:
+                    matrix.append(_row)
             comps = list(zip(*matrix))
+
+            fields = self.get_fields(self.buildings)
             edit.startOperation()
-            with da.UpdateCursor(self.buildings, self.update_fields, "{}='{}'".format(self.folio_field, folio)) as cursor:
-                for row in cursor:
+            with da.UpdateCursor(self.buildings, fields, "{}='{}'".format(self.folio_field.upper(), folio)) as _cursor:
+                for _row in _cursor:
                     new_row = []
-                    for x in comps:
-                        s = set(x)
+                    for _x in comps:
+                        s = set(_x)
                         if len(s) > 1:
                             new_row.append(", ".join(s))
                         elif len(s) == 1:
                             new_row.append(s.pop())
-                    cursor.updateRow(new_row)
+                    _cursor.updateRow(new_row)
             edit.stopOperation()
         edit.stopEditing(True)
         return True
@@ -409,34 +348,33 @@ try:
     r_table, w_table = compare_fields("*weaver_formatted", "*WEAVER")
 
     # verify that the necessary tables exist
-    for x in [r_table, w_table, bldgs]:
+    for x in [r_table, w_table]:
         if not arcpy.Exists(x):
             logging.error("the target table and the building are not found")
             raise Exception()
 
-    # Check if read table and write table are identical
-    r_rows = []
+    # Add all of the rows from the weaver sql table to a list
+    add_rows = []
     with da.SearchCursor(r_table, "*") as cursor:
         for row in cursor:
-            r_rows.append(row)
+            add_rows.append(row)
+    del cursor
 
-    compare_result = 0
-    count = 0
+    exist_rows = []
     with da.SearchCursor(w_table, "*") as cursor:
         for row in cursor:
-            if not compare_result:
-                if row[1:] in r_rows:
-                    count += 1
-                    pass
-                else:
-                    compare_result += 1
-                    break
+            # the rows from the GDB table, are identical to any row in the list, remove that row from the list
+            if row[1:] in add_rows:
+                add_rows.remove(row[1:])
+                pass
+            # if the row is not in the add_rows, then add it to the exist_rows to remove
+            else:
+                exist_rows.append(row)
+    del cursor
 
-    if count != len(r_rows):
+    compare_result = 0
+    if len(add_rows) or len(exist_rows):
         compare_result += 1
-
-    del r_rows
-    del count
 
     if compare_result:
         # create VersionManager class object to create new version, connect to it,
@@ -447,15 +385,20 @@ try:
         version_sde_file = version_manager.connect_version()
 
         # create WeaverUpdater class object
-        weaver_updater = WeaverUpdater(w_table, r_table, version_sde_file)
+        weaver_updater = WeaverUpdater(w_table, add_rows, exist_rows, version_sde_file)
 
         # get the number for rows per parcel ID
-        pid_list = weaver_updater.count_pid()
+        pid_dict = weaver_updater.count_pid()
         # should return True when editing is complete
         table_updated = weaver_updater.perform_update()
 
+        version_manager = VersionManager(out_f, plat, inst, sde_file, v_name, n_name, p_version, log_name)
+        version_manager.clean_previous()
+        version_sde_file = version_manager.connect_version()
+        dataset_workspace = arcpy.ListDatasets("*{}*".format(dataset))[0]
+        buildings = arcpy.ListFeatureClasses("*{}*".format(bldgs), "Polygon", dataset_workspace)[0]
         # create BuildingUpdater class object
-        building_updater = BuildingsUpdater(bldgs, w_table, update_atts, folio_num_field, version_sde_file)
+        building_updater = BuildingsUpdater(buildings, w_table, folio_num_field, update_atts, version_sde_file)
         folios = building_updater.get_folios()
         # should return True when editing it complete
         buildings_updated = building_updater.update_buildings()
@@ -464,7 +407,7 @@ try:
     else:
         print "The files are identical, no edits needed"
 
-except Exception as e:
+except:
     exc_type, exc_value, exc_traceback = sys.exc_info()
     traceback.print_exception(exc_type, exc_value, exc_traceback,
                               limit=2, file=sys.stdout)
