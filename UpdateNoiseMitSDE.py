@@ -20,6 +20,52 @@ formatter = logging.Formatter('%(name)-12s: %(levelname)-8s %(message)s')
 console.setFormatter(formatter)
 logging.getLogger('').addHandler(console)
 
+# folder to store the connection files created in the script
+out_f = env.scratchFolder
+# name of the connection file for the default version
+out_n = "Weaver.sde"
+
+# name of the database instance
+#inst = "ARORALAPTOP50\SDESQLEXPRESS"
+inst = r"sql-server-azure.database.windows.net"
+
+# username for the database user
+#uid = "Richard"
+uid = "bcad"
+
+# password for the database user
+#pwd = "Heddie01!"
+pwd = "AroraGIS123"
+
+# name of the database
+#database = "DEVELOPMENT_BCAD.sde"
+database = "bcad_noise"
+
+# variable for the parent version of the database
+p_version = "dbo.DEFAULT"
+
+# name of building polygon feature class
+bldgs = r"Building_Information"
+
+# sql table used to update the geodatabase table
+SQL_Table = ""
+
+# GDB table with holds the weaver data from the sql table
+GDB_Table = ""
+
+# attribute fields on the building feature class that need to be selected by the user
+building_attributes = {"Project Name": "projectName",
+                       "Phase Name": "phaseName",
+                       "Folio Number": "folioId"}
+
+# attribute fields on the weaver geodatabase table that need to be selected by the user
+weaver_attributes = {"Project Name": "ProjectName",
+                     "Phase Name": "PhaseName",
+                     "Folio Number": "FolioNumber"}
+
+# name of the dataset that holds the Noise Mitigation data
+dataset = "NoiseMitigation"
+
 
 def create_sql_connection(d, s, p, db, u, pw):
     connection = pyodbc.connect(r"DRIVER={0};SERVER={1};PORT={2};DATABASE={3};UID={4};PWD={5}".format(d, s, p,
@@ -29,68 +75,49 @@ def create_sql_connection(d, s, p, db, u, pw):
     return d
 
 
-def compare_fields(read_wc, write_wc):
+def compare_fields(sql_table, existing_table):
     """Compare the fields between the tables to catch a schema change"""
-    r_table = ""
-    tables = arcpy.ListTables(read_wc)
-    if len(tables):
-        r_table = tables[0]
+    read_fields = arcpy.ListFields(sql_table)
+    read_field_names = [f.name for f in read_fields]
 
-    r_fields = arcpy.ListFields(r_table)
-    r_fnames = [f.name for f in r_fields]
+    existing_fields = arcpy.ListFields(existing_table)
+    existing_field_names = [f.name for f in existing_fields]
 
-    w_table = ""
-    tables = arcpy.ListTables(write_wc)
-    if len(tables):
-        w_table = tables[0]
-    w_fields = arcpy.ListFields(w_table)
-    w_fnames = [f.name for f in w_fields]
+    # The only missing field should be ObjectID because the sql table is not registered with the geodatabase
+    new_fields = [f for f in read_field_names if f not in existing_field_names]
+    missing_fields = [f for f in existing_field_names if f not in read_field_names]
 
-    # The only missing field should be ObjectID
-    # TODO-New fields should prompt an Exception due to schema change
-    new_fields = [f for f in r_fnames if f not in w_fnames]
-    missing_fields = [f for f in w_fnames if f not in r_fnames]
+    match_fields = [f for f in existing_field_names if f in read_field_names]
+    if "OBJECTID" in match_fields:
+        match_fields.remove("OBJECTID")
 
     if len(new_fields):
         raise Exception("A schema change exists in the updated weaver table :: {}".format(new_fields))
-    if missing_fields != [u'OBJECTID']:
-        raise Exception("The updated weaver table is missing fields :: {}".format(missing_fields))
 
-    return [r_table, w_table]
+    if missing_fields != [u'OBJECTID'] and missing_fields != []:
+        raise Exception("The updated weaver table is missing fields :: {}\
+                        A Schema change may be needed to import the table,\
+                        or else the column will be empty".format(missing_fields))
+
+    return [sql_table, existing_table, match_fields]
 
 
-# connection info for the odbc connection
-driver = 'SQL Server Native Client 11.0'
-server = r'ARORALAPTOP50\SDESQLEXPRESS'
-port = 1433
-database = 'DEVELOPMENT_BCAD'
-uid = 'Richard'
-pwd = 'AroraGIS123'
+def print_connection_info(workspace):
+    """print the connection properties of the workspace describe object"""
+    x = arcpy.Describe(workspace)
+    cp = x.connectionProperties
+    print cp.database, cp.version
 
-# connection info for the esri sde connection
-out_f = env.scratchFolder
-out_n = "Weaver.sde"
-plat = "SQL_SERVER"
-inst = server
 
-opt = {"account_authentication": "DATABASE_AUTH",
-           "username": uid,
-           "password": pwd,
-           "save_user_pass": "SAVE_USERNAME",
-           "database": database,
-           "schema": "#",
-           "version_type": "TRANSACTIONAL",
-           "version": "dbo.DEFAULT",
-           "date": ""}
-
-# create a new version to put edits into
-p_version = "dbo.DEFAULT"
-v_name = "{}.NoiseMit".format(uid.upper())
-n_name = "NoiseMit"
-bldgs = r"Building_Information"
-update_atts = ["PROJECTNAM", "PHASENAME"]
-folio_num_field = "FOLIONUMBE"
-dataset = "NoiseMitigation"
+def clean_row(_row):
+    """take an input row from a cursor, clean it, then return the cleaned row"""
+    cleaned_row = []
+    for _x in _row:
+        if _x is None:
+            _x = "unknown"
+        _x = _x.strip()
+        cleaned_row.append(_x)
+    return cleaned_row
 
 
 class VersionException(Exception):
@@ -128,12 +155,12 @@ class SdeConnector:
 
 
 class VersionManager:
-    def __init__(self, out_folder, platform, instance, target_sde, version_name, new_name, parent_version, log):
+    def __init__(self, out_folder, platform, instance, target_sde, new_name, parent_version, log):
         self.instance = instance
         self.platform = platform
         self.out_folder = out_folder
         self.target_sde = target_sde
-        self.version_name = version_name
+        self.version_name = "{}.{}".format(uid.lower(), new_name)
         self.new_name = new_name
         self.version_sde = ""
         self.parent_version = parent_version
@@ -180,34 +207,30 @@ class VersionManager:
             raise VersionException()
 
     def rec_post(self):
-        workspace = self.version_sde
-        env.workspace = workspace
-        # You should be on the only user
-        userList = arcpy.ListUsers(workspace)
-        arcpy.AcceptConnections(workspace, False)
-        edit = da.Edit(self.workspace)
-        edit.startEditing()
-        edit.startOperation()
-        arcpy.ReconcileVersions_management(workspace, "ALL_VERSIONS", self.parent_version,
-                                           self.version_name, "LOCK_ACQUIRED",
-                                           "ABORT_CONFLICTS", "BY_OBJECT", "FAVOR_TARGET_VERSION",
-                                           "POST", "KEEP_VERSION")
-        edit.stopOperation()
-        edit.stopEditing(True)
-        env.workspace = self.target_sde
-        self.clean_previous()
-        return True
+        try:
+            # Block additional connections during rec/post
+            arcpy.AcceptConnections(self.version_sde, False)
+
+            arcpy.ReconcileVersions_management(self.version_sde, "ALL_VERSIONS", self.parent_version,
+                                               self.version_name, "LOCK_ACQUIRED",
+                                               "ABORT_CONFLICTS", "BY_OBJECT", "FAVOR_TARGET_VERSION",
+                                               "POST", "DELETE_VERSION")
+
+            env.workspace = self.target_sde
+            return True
+        except:
+            raise VersionException("Unable to rec/post edits")
 
 
 class WeaverUpdater:
-    #w_table, add_rows, rem_rows, version_sde_file
-    def __init__(self, write_table, read_rows, remove_rows, version_sde):
+    """match_fields, w_table, add_rows, rem_rows, version_sde_file"""
+    def __init__(self, match_fields, write_table, read_rows, remove_rows, version_sde):
+        self.match_fields = match_fields
         self.write_table = write_table
         self.read_rows = read_rows
         self.remove_rows = remove_rows
         self.version_sde = version_sde
         self.items = {}
-        self.all_fields = []
         pass
 
     def count_pid(self):
@@ -227,7 +250,7 @@ class WeaverUpdater:
         try:
             editor.startOperation()
 
-            insert = da.InsertCursor(self.write_table, self.all_fields)
+            insert = da.InsertCursor(self.write_table, self.match_fields)
 
             for _row in self.read_rows:
                 insert.insertRow(_row)
@@ -240,11 +263,13 @@ class WeaverUpdater:
 
     def delete_rows(self, parcel_id, editor):
         editor.startOperation()
-        with da.UpdateCursor(self.write_table, self.all_fields, "ParcelID='{}'".format(parcel_id)) as _cursor:
+        with da.UpdateCursor(self.write_table, self.match_fields, "ParcelID='{}'".format(parcel_id)) as _cursor:
             for line in _cursor:
-                # delete all rows from the input list
+                # delete all rows that are identical to an item in the input list
                 if line in self.remove_rows:
                     _cursor.deleteRow(line)
+        del line
+        del _cursor
         editor.startOperation()
 
     def update_table(self, parcel_id, editor):
@@ -267,85 +292,124 @@ class WeaverUpdater:
         # work with one pid at a time
         for pid in self.items.keys():
 
-            t_fields = arcpy.ListFields(self.write_table)
-            t_fields = [t.name for t in t_fields]
-            t_fields.remove('OBJECTID')
-            self.all_fields = t_fields
-
             # table is empty, populate it
             if len(self.remove_rows) == 0:
                 self.insert_rows(edit)
                 pass
-            # update the rows that are not identical, a complex function
             else:
                 self.update_table(pid, edit)
 
         edit.stopEditing(True)
+        del edit
         return True
 
 
 class BuildingsUpdater:
-    """buildings, w_table, folio_num_field, update_atts, version_sde_file"""
-    def __init__(self, b, rel_table, folio_field, update_fields, version_sde):
+    """buildings, w_table, building_attributes, weaver_attributes,version_sde_file"""
+    def __init__(self, b, rel_table, bldg_atts, weav_atts, version_sde):
         self.buildings = b
-        self.version_sde = version_sde
-        self.folio_field = folio_field
-        self.update_fields = update_fields
         self.rel_table = rel_table
-        self.folios = []
+        self.bldg_folio = bldg_atts["Folio Number"]
+        self.bldg_update_fields = [bldg_atts["Project Name"], bldg_atts["Phase Name"]]
+        self.weav_folio = weav_atts["Folio Number"]
+        self.weav_update_fields = [weav_atts["Project Name"], weav_atts["Phase Name"]]
+        self.version_sde = version_sde
 
-    def get_fields(self, in_table):
-        ups = []
-        # list fields to get the correct field name if capitalization is not identical
-        fields = arcpy.ListFields(in_table)
-        for f in fields:
-            if f.name.upper() in self.update_fields:
-                ups.append(f.name)
-        return ups
+        self.folios = {}
 
     def get_folios(self):
-        with da.SearchCursor(self.buildings, [self.folio_field]) as _cursor:
+        with da.SearchCursor(self.buildings, self.bldg_folio) as _cursor:
             for _row in _cursor:
-                self.folios.append(_row[0])
-
+                cleaned_row = clean_row(_row)
+                self.folios[cleaned_row[0]] = {"Phase Names": [], "Project Names": []}
+        del _cursor
         return self.folios
 
     def update_buildings(self):
-        # gather the building folio numbers
+        # gather the building folio numbers as keys in a dict
+        def concat_list(_input):
+            """take the input multivalue list and output a string"""
+            _ph = _input
+            if type(_ph) == list:
+                cnt = Counter()
+                for w in _ph:
+                    cnt[w] += 1
+
+                _ph = ""
+                if len(cnt.items()):
+                    l = []
+                    d = dict(cnt)
+
+                    for k, v in d.iteritems():
+                        l.append("{}:{}".format(k, v))
+                    if len(l) > 1:
+                        _ph = ", ".join(l)
+                    else:
+                        _ph = str(l[0])
+
+            return _ph
+
         _folios = self.get_folios()
+        fields = [self.weav_folio, self.weav_update_fields[0], self.weav_update_fields[1]]
+        with da.SearchCursor(self.rel_table, fields) as _cursor:
+            for _row in _cursor:
+                cleaned_row = clean_row(_row)
+                if cleaned_row[0] in _folios:
+                    _folios[cleaned_row[0]]["PhaseNames"].append(cleaned_row[1])
+                    _folios[cleaned_row[0]]["ProjectNames"].append(cleaned_row[2])
+
+        del _row
+        del _cursor
+
         edit = da.Editor(self.version_sde)
         edit.startEditing()
-        for folio in _folios:
-            matrix = []
+        print_connection_info(self.version_sde)
+        edit.startOperation()
 
-            fields = self.get_fields(self.rel_table)
-            with da.SearchCursor(self.rel_table, fields, "FolioNumber='{}'".format(self.folio_field.capitalize())) as _cursor:
-                for _row in _cursor:
-                    matrix.append(_row)
-            comps = list(zip(*matrix))
+        fields = [self.bldg_folio, self.bldg_update_fields[0], self.bldg_update_fields[1]]
+        with da.UpdateCursor(self.buildings, fields) as _cursor:
+            for _row in _cursor:
+                cleaned_row = clean_row(_row)
+                folio_id = cleaned_row[0]
+                if folio_id in _folios:
+                    ph = _folios[folio_id]["PhaseNames"]
+                    phase_name = concat_list(ph)
 
-            fields = self.get_fields(self.buildings)
-            edit.startOperation()
-            with da.UpdateCursor(self.buildings, fields, "{}='{}'".format(self.folio_field.upper(), folio)) as _cursor:
-                for _row in _cursor:
-                    new_row = []
-                    for _x in comps:
-                        s = set(_x)
-                        if len(s) > 1:
-                            new_row.append(", ".join(s))
-                        elif len(s) == 1:
-                            new_row.append(s.pop())
+                    pn = _folios[folio_id]["ProjectNames"]
+                    project_name = concat_list(pn)
+
+                    new_row = [folio_id, phase_name, project_name]
                     _cursor.updateRow(new_row)
-            edit.stopOperation()
+                else:
+                    print "{} is not in the weaver table".format(folio_id)
+        del _row
+        del _cursor
+
+        edit.stopOperation()
         edit.stopEditing(True)
+        del edit
         return True
 
 try:
-    #cnxn = create_sql_connection(driver, server, port, database, uid, pwd)
+    opt = {"account_authentication": "DATABASE_AUTH",
+           "username": uid,
+           "password": pwd,
+           "save_user_pass": "SAVE_USERNAME",
+           "database": database,
+           "schema": "#",
+           "version_type": "TRANSACTIONAL",
+           "version": p_version,
+           "date": ""}
+
+    plat = "SQL_SERVER"
+
     connection = SdeConnector(out_f, out_n, plat, inst, opt)
     sde_file = connection.create_sde_connection()
 
-    r_table, w_table = compare_fields("*weaver_formatted", "*WEAVER")
+    # These values need to be removed when the user parameters are created
+    SQL_Table = arcpy.ListTables("*weaver_formatted")[0]
+    GDB_Table = arcpy.ListTables("*WEAVER")[0]
+    r_table, w_table, match_fields = compare_fields(sql_table=SQL_Table, existing_table=GDB_Table)
 
     # verify that the necessary tables exist
     for x in [r_table, w_table]:
@@ -355,17 +419,17 @@ try:
 
     # Add all of the rows from the weaver sql table to a list
     add_rows = []
-    with da.SearchCursor(r_table, "*") as cursor:
+    with da.SearchCursor(r_table, match_fields) as cursor:
         for row in cursor:
             add_rows.append(row)
     del cursor
 
     exist_rows = []
-    with da.SearchCursor(w_table, "*") as cursor:
+    with da.SearchCursor(w_table, match_fields) as cursor:
         for row in cursor:
             # the rows from the GDB table, are identical to any row in the list, remove that row from the list
-            if row[1:] in add_rows:
-                add_rows.remove(row[1:])
+            if row in add_rows:
+                add_rows.remove(row)
                 pass
             # if the row is not in the add_rows, then add it to the exist_rows to remove
             else:
@@ -376,33 +440,31 @@ try:
     if len(add_rows) or len(exist_rows):
         compare_result += 1
 
-    if compare_result:
+    if not compare_result:
         # create VersionManager class object to create new version, connect to it,
         # and create an sde connection file, set as current workspace
         # out_folder, platform, instance, target_sde, version_name, new_name, parent_version, log
-        version_manager = VersionManager(out_f, plat, inst, sde_file, v_name, n_name, p_version, log_name)
+        version_manager = VersionManager(out_f, plat, inst, sde_file, "NoiseMit", p_version, log_name)
         version_manager.clean_previous()
         version_sde_file = version_manager.connect_version()
 
         # create WeaverUpdater class object
-        weaver_updater = WeaverUpdater(w_table, add_rows, exist_rows, version_sde_file)
+        weaver_updater = WeaverUpdater(w_table, match_fields, add_rows, exist_rows, version_sde_file)
 
         # get the number for rows per parcel ID
         pid_dict = weaver_updater.count_pid()
         # should return True when editing is complete
         table_updated = weaver_updater.perform_update()
 
-        version_manager = VersionManager(out_f, plat, inst, sde_file, v_name, n_name, p_version, log_name)
-        version_manager.clean_previous()
-        version_sde_file = version_manager.connect_version()
+        # get the noise mit dataset and the buildings feature class
         dataset_workspace = arcpy.ListDatasets("*{}*".format(dataset))[0]
         buildings = arcpy.ListFeatureClasses("*{}*".format(bldgs), "Polygon", dataset_workspace)[0]
         # create BuildingUpdater class object
-        building_updater = BuildingsUpdater(buildings, w_table, folio_num_field, update_atts, version_sde_file)
-        folios = building_updater.get_folios()
+        building_updater = BuildingsUpdater(buildings, w_table, building_attributes, weaver_attributes,
+                                            version_sde_file)
         # should return True when editing it complete
         buildings_updated = building_updater.update_buildings()
-        # move edits to the default version, and delete the noisemit version
+        # Create a new Edit Session move edits to the default version, and delete the noisemit version
         version_manager.rec_post()
     else:
         print "The files are identical, no edits needed"
