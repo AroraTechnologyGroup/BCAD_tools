@@ -4,10 +4,11 @@ import sys
 import logging
 from arcpy import da
 from arcpy import env
-import pyodbc
 from collections import Counter
 import traceback
 env.overwriteOutput = 1
+
+# location and name of output log file
 log_name = "C:\\Temp\NoiseMit_logfile.txt"
 
 logging.basicConfig(level=logging.DEBUG,
@@ -67,14 +68,6 @@ weaver_attributes = {"Project Name": "ProjectName",
 dataset = "NoiseMitigation"
 
 
-def create_sql_connection(d, s, p, db, u, pw):
-    connection = pyodbc.connect(r"DRIVER={0};SERVER={1};PORT={2};DATABASE={3};UID={4};PWD={5}".format(d, s, p,
-                                                                                                      db, u, pw))
-    cr = connection.cursor()
-    d = {"connection": connection, "cursor": cr}
-    return d
-
-
 def compare_fields(sql_table, existing_table):
     """Compare the fields between the tables to catch a schema change"""
     read_fields = arcpy.ListFields(sql_table)
@@ -87,7 +80,7 @@ def compare_fields(sql_table, existing_table):
     new_fields = [f for f in read_field_names if f not in existing_field_names]
     missing_fields = [f for f in existing_field_names if f not in read_field_names]
 
-    match_fields = [f for f in existing_field_names if f in read_field_names]
+    _match_fields = [f for f in existing_field_names if f in read_field_names]
     if "OBJECTID" in match_fields:
         match_fields.remove("OBJECTID")
 
@@ -99,7 +92,7 @@ def compare_fields(sql_table, existing_table):
                         A Schema change may be needed to import the table,\
                         or else the column will be empty".format(missing_fields))
 
-    return [sql_table, existing_table, match_fields]
+    return [sql_table, existing_table, _match_fields]
 
 
 def print_connection_info(workspace):
@@ -151,7 +144,11 @@ class SdeConnector:
 
         env.workspace = target_sde
 
-        return target_sde
+        if arcpy.Exists(target_sde):
+            d = target_sde
+        else:
+            d = False
+        return d
 
 
 class VersionManager:
