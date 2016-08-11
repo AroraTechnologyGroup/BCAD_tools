@@ -1,13 +1,11 @@
-from . import UpdateNoiseMitSDE as Subject
-import arcpy
-from arcpy import env
-from arcpy import da
-import traceback
 import sys
 import os
+from os.path import dirname, abspath
+from UpdateNoiseMitSDE import SdeConnector
+import unittest
+from unittest import TestCase
 
-# folder to store the connection files created in the script
-out_f = env.scratchFolder
+out_f = r"C:\Users\rhughes\Documents\ArcGIS"
 # name of the connection file for the default version
 out_n = "Weaver.sde"
 
@@ -53,41 +51,25 @@ weaver_attributes = {"Project Name": "ProjectName",
 dataset = "NoiseMitigation"
 
 opt = {"account_authentication": "DATABASE_AUTH",
-           "username": uid,
-           "password": pwd,
-           "save_user_pass": "SAVE_USERNAME",
-           "database": database,
-           "schema": "#",
-           "version_type": "TRANSACTIONAL",
-           "version": p_version,
-           "date": ""}
+       "username": uid,
+       "password": pwd,
+       "save_user_pass": "SAVE_USERNAME",
+       "database": database,
+       "schema": "#",
+       "version_type": "TRANSACTIONAL",
+       "version": p_version,
+       "date": ""}
 
 plat = "SQL_SERVER"
 
 
-def __init__(self):
-    pass
+class TestSdeConnector(TestCase):
 
+    def test_create_sde_connection(self):
+        connector = SdeConnector(out_folder=out_f, out_name=out_n, platform=plat, instance=inst, options=opt)
+        sde_file = connector.create_sde_connection()
+        self.assertEqual("{}\\{}".format(out_f, out_n), sde_file)
 
-class FailedTest(Exception):
-    """raise this exception when the test fails"""
-    exc_type, exc_value, exc_traceback = sys.exc_info()
-    traceback.print_exception(exc_type, exc_value, exc_traceback,
-                              limit=2, file=sys.stdout)
+if __name__ == '__main__':
 
-
-def test_connection():
-    """out_folder, out_name, platform, instance, options"""
-    connector = Subject.SdeConnector(out_f, out_n, plat, inst, opt)
-    output = connector.create_sde_connection()
-    if not output:
-        raise FailedTest()
-    else:
-        os.remove(output)
-    return
-
-
-def run(tests):
-    return [f() for f in tests]
-
-run([test_connection])
+    unittest.main()
