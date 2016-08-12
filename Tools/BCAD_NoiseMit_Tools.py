@@ -210,8 +210,8 @@ class WeaverUpdate(object):
         bldg_folioId, gdb_table_projectName, gdb_table_phaseName,\
         gdb_table_folioId = [p.valueAsText for p in parameters]
 
-        GDB_Table_name = arcpy.Describe(GDB_Table).basename
-        Buildings_name = arcpy.Describe(bldgs).basename
+        GDB_Table_name = arcpy.Describe(GDB_Table).basename.split('.')[-1]
+        Buildings_name = arcpy.Describe(bldgs).basename.split('.')[-1]
 
         # name of the connection file to the default version
         out_n = "Weaver.sde"
@@ -283,15 +283,29 @@ class WeaverUpdate(object):
 
                     # create BuildingUpdater class object
                     noisemit = arcpy.ListDatasets("*Noise*")[0]
-                    buildings = arcpy.ListFeatureClasses("*{}".format(Buildings_name), noisemit)
-                    if arcpy.Exists(buildings):
-                        building_updater = BuildingsUpdater(buildings, gdb_table, building_attributes, weaver_attributes,
-                                                            version_sde_file, editor)
-                        # should return True when editing it complete
-                        buildings_updated = building_updater.update_buildings()
+                    dataset_path = os.path.join(env.workspace, noisemit)
+                    env.workspace = dataset_path
+                    buildings = arcpy.ListFeatureClasses("*{}".format(Buildings_name))
+                    if len(buildings) == 1:
+                        buildings = buildings.pop()
+                        if arcpy.Exists(buildings):
+                            env.workspace = version_sde_file
+                            buildings = os.path.join(noisemit, buildings)
+                            building_updater = BuildingsUpdater(buildings, gdb_table, building_attributes, weaver_attributes,
+                                                                version_sde_file, editor)
+                            # should return True when editing it complete
+                            buildings_updated = building_updater.update_buildings()
 
-                        editor.stopEditing(True)
-                        del editor
+                            editor.stopEditing(True)
+                            del editor
+
+                            # move edits to the default version, and delete the noisemit version
+                            version_manager.rec_post()
+
+                        else:
+                            editor.stopEditing(False)
+                            del editor
+                            arcpy.AddError("The buildings do not exist")
                     else:
                         editor.stopEditing(False)
                         del editor
@@ -302,19 +316,19 @@ class WeaverUpdate(object):
                     del editor
                     arcpy.AddError("Unable to determine the gdb table " + \
                                       "using the version connection")
-
-
-                # move edits to the default version, and delete the noisemit version
-                version_manager.rec_post()
             else:
                 arcpy.AddMessage("The files are identical, no edits needed")
 
+            # Verify that the edits where posted
+            # TODO- determine failproof methods for isolating the changed features and viewing the change
             env.workspace = sde_file
             fields = [x for x in building_attributes.itervalues()]
             cursor = da.SearchCursor(bldgs, fields)
             values = cursor.next()
             del cursor
             print values
+
+            os.remove(sde_file)
             return True
 
         except:

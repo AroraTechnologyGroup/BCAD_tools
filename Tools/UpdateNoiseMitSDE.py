@@ -29,29 +29,31 @@ def compare_fields(sql_table, existing_table):
         raise Exception("A schema change exists in the updated weaver table :: {}".format(new_fields))
 
     if missing_fields != [u'OBJECTID'] and missing_fields != []:
-        raise Exception("The updated weaver table is missing fields :: {}\
+        arcpy.AddWarning("The updated weaver table is missing fields :: {}\
                         A Schema change may be needed to import the table,\
                         or else the column will be empty".format(missing_fields))
 
     # verify that the necessary tables exist
     for x in [sql_table, existing_table]:
         if not arcpy.Exists(x):
-            logging.error("the target table and the building are not found")
+            arcpy.AddError("the target table and the building are not found")
             raise Exception()
 
     # Add all of the rows from the weaver sql table to a list
     add_rows = []
     with da.SearchCursor(sql_table, _match_fields) as cursor:
         for row in cursor:
-            add_rows.append(row)
+            tuple_row = tuple([u"{}".format(x) for x in row])
+            add_rows.append(tuple_row)
     del cursor
 
     exist_rows = []
     with da.SearchCursor(existing_table, _match_fields) as cursor:
         for row in cursor:
+            tuple_row = tuple([u"{}".format(x) for x in row])
             # the rows from the GDB table, are identical to any row in the list, remove that row from the list
-            if row in add_rows:
-                add_rows.remove(row)
+            if tuple_row in add_rows:
+                add_rows.remove(tuple_row)
                 pass
             # if the row is not in the add_rows, then add it to the exist_rows to remove
             else:
@@ -175,8 +177,8 @@ class VersionManager:
                 try:
                     arcpy.CreateVersion_management(self.target_sde, self.parent_version, self.new_name,
                                                    access_permission="PUBLIC")
-                except:
-                    raise VersionException()
+                except Exception as e:
+                    raise VersionException(e.message)
 
 
             # create an sde connection file to the new version
@@ -196,11 +198,11 @@ class VersionManager:
             # Block additional connections during rec/post
             env.workspace = self.version_sde
 
-            arcpy.ReconcileVersions_management(self.version_sde, "BLOCKING_VERSIONS", self.parent_version,
-                                               self.version_name, "LOCK_ACQUIRED",
+            arcpy.ReconcileVersions_management(self.version_sde, "ALL_VERSIONS", u"{}".format(self.parent_version),
+                                               u"{}".format(self.version_name), "NO_LOCK_ACQUIRED",
                                                "ABORT_CONFLICTS", "BY_OBJECT", "FAVOR_TARGET_VERSION",
                                                "POST", "DELETE_VERSION", "C:\\Temp\NoiseMit_logfile.txt")
-
+            os.remove(self.version_sde)
             return True
         except Exception as e:
             raise VersionException("Unable to rec/post edits :: {}".format(e.message))
@@ -271,15 +273,21 @@ class WeaverUpdater:
                 added = self.insert_rows()
             return [deleted, added]
 
-        except Exception as f:
-            print f.message
+        except Exception as e:
+            arcpy.AddError(e.message)
 
     def perform_update(self):
-        # begin edit session
-        # work with one pid at a time
-        for pid in self.items.keys():
-            self.update_table(pid)
-        return True
+
+        try:
+            # if the table is empty add all read_rows
+            if not int(arcpy.GetCount_management(self.write_table).getOutput(0)):
+                self.insert_rows()
+            else:
+                # work with one pid at a time
+                for pid in self.items.keys():
+                    self.update_table(pid)
+        except Exception as e:
+            arcpy.AddError(e.message)
 
 
 class BuildingsUpdater:
