@@ -139,7 +139,14 @@ class VersionManager:
 
     def clean_previous(self):
         # remove previous version if it exists
-        versions = da.ListVersions(self.target_sde)
+        versions = []
+        try:
+            if arcpy.Exists(self.target_sde):
+                env.workspace = self.target_sde
+                versions = da.ListVersions(self.target_sde)
+        except EnvironmentError as e:
+            raise VersionException(e.message)
+
         if len(versions):
             v_names = [v.name for v in versions]
             if self.version_name in v_names:

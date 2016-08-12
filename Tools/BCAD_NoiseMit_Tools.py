@@ -26,7 +26,7 @@ class WeaverUpdate(object):
         self.label = "WeaverUpdate to GDB table"
         self.description = "The Weaver export to a SQL Table is used to update the GDB table " + \
             "that particapates in a one-to-many relationship class with the buildings feature class"
-        self.canRunInBackground = False
+        self.canRunInBackground = True
 
     def getParameterInfo(self):
         """Define parameter definitions"""
@@ -39,7 +39,7 @@ class WeaverUpdate(object):
             direction='Input'
         )
         param0.defaultEnvironmentName = 'scratchFolder'
-        param0.value = r"C:\Users\rhughes\Documents\ArcGIS"
+        param0.value = r"C:\Users\rhughes\AppData\Roaming\ESRI\Desktop10.3\ArcCatalog"
 
         # name of the database instance
         param01 = arcpy.Parameter(
@@ -65,11 +65,11 @@ class WeaverUpdate(object):
         param03 = arcpy.Parameter(
             displayName='Database User Password',
             name='password',
-            datatype='GPEncryptedString',
+            datatype='GPString',
             parameterType='Required',
             direction='Input'
         )
-        param03.value = 'AroraGIS123'
+        param03.value = r'AroraGIS123'
 
         # name of the database
         param04 = arcpy.Parameter(
@@ -204,6 +204,7 @@ class WeaverUpdate(object):
 
     def execute(self, parameters, messages):
         """The source code of the tool."""
+
         out_f, inst, uid, pwd, database, p_version, bldgs,\
         SQL_Table, GDB_Table, bldg_projectName, bldg_phaseName,\
         bldg_folioId, gdb_table_projectName, gdb_table_phaseName,\
@@ -249,7 +250,7 @@ class WeaverUpdate(object):
             add_rows = result["add_rows"]
             exist_rows = result["exist_rows"]
 
-            messages.addMessage({"compare result": compare_result,
+            arcpy.AddMessage({"compare result": compare_result,
                                  "add_rows": len(add_rows),
                                  "existing_rows": len(exist_rows)})
             # This needs to run one time to populate the attributes for PhaseName and ProjectName on the buildings
@@ -263,37 +264,50 @@ class WeaverUpdate(object):
                 version_sde_file = version_manager.connect_version()
 
                 if os.path.exists(version_sde_file):
-                    messages.addMessage(version_sde_file)
+                    arcpy.AddMessage(version_sde_file)
                 else:
-                    messages.addErrorMessage("version_sde_file not created")
+                   arcpy.AddError("version_sde_file not created")
 
                 editor = da.Editor(version_sde_file)
                 editor.startEditing()
 
                 # create WeaverUpdater class object
                 gdb_table = arcpy.ListTables("*{}".format(GDB_Table_name))[0]
-                weaver_updater = WeaverUpdater(match_fields, gdb_table, add_rows, exist_rows, version_sde_file, editor)
+                if arcpy.Exists(gdb_table):
+                    weaver_updater = WeaverUpdater(match_fields, gdb_table, add_rows, exist_rows, version_sde_file, editor)
 
-                # get the number for rows per parcel ID
-                pid_dict = weaver_updater.count_pid()
-                # should return True when editing is complete
-                table_updated = weaver_updater.perform_update()
+                    # get the number for rows per parcel ID
+                    pid_dict = weaver_updater.count_pid()
+                    # should return True when editing is complete
+                    table_updated = weaver_updater.perform_update()
 
-                # create BuildingUpdater class object
-                noisemit = arcpy.ListDatasets("*Noise*")[0]
-                buildings = arcpy.ListFeatureClasses("*{}".format(bldgs), noisemit)
-                building_updater = BuildingsUpdater(buildings, gdb_table, building_attributes, weaver_attributes,
-                                                    version_sde_file, editor)
-                # should return True when editing it complete
-                buildings_updated = building_updater.update_buildings()
+                    # create BuildingUpdater class object
+                    noisemit = arcpy.ListDatasets("*Noise*")[0]
+                    buildings = arcpy.ListFeatureClasses("*{}".format(Buildings_name), noisemit)
+                    if arcpy.Exists(buildings):
+                        building_updater = BuildingsUpdater(buildings, gdb_table, building_attributes, weaver_attributes,
+                                                            version_sde_file, editor)
+                        # should return True when editing it complete
+                        buildings_updated = building_updater.update_buildings()
 
-                editor.stopEditing(True)
-                del editor
+                        editor.stopEditing(True)
+                        del editor
+                    else:
+                        editor.stopEditing(False)
+                        del editor
+                        arcpy.AddError("Unable to determine the buildings feature class " + \
+                                          "using the version connection")
+                else:
+                    editor.stopEditing(False)
+                    del editor
+                    arcpy.AddError("Unable to determine the gdb table " + \
+                                      "using the version connection")
+
 
                 # move edits to the default version, and delete the noisemit version
                 version_manager.rec_post()
             else:
-                print "The files are identical, no edits needed"
+                arcpy.AddMessage("The files are identical, no edits needed")
 
             env.workspace = sde_file
             fields = [x for x in building_attributes.itervalues()]
@@ -305,5 +319,5 @@ class WeaverUpdate(object):
 
         except:
             exc_type, exc_value, exc_traceback = sys.exc_info()
-            traceback.print_exception(exc_type, exc_value, exc_traceback,
-                                      limit=2, file=sys.stdout)
+            arcpy.AddError(repr(traceback.format_exception(exc_type, exc_value,
+                                          exc_traceback)))
