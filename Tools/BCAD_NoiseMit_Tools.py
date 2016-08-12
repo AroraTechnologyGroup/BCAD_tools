@@ -266,7 +266,7 @@ class WeaverUpdate(object):
                 if os.path.exists(version_sde_file):
                     arcpy.AddMessage(version_sde_file)
                 else:
-                   arcpy.AddError("version_sde_file not created")
+                    arcpy.AddError("version_sde_file not created")
 
                 editor = da.Editor(version_sde_file)
                 editor.startEditing()
