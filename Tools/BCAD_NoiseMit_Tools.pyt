@@ -1,5 +1,6 @@
 import arcpy
 import sys
+import os
 from arcpy import da
 from arcpy import env
 import traceback
@@ -25,7 +26,7 @@ class WeaverUpdate(object):
         self.label = "WeaverUpdate to GDB table"
         self.description = "The Weaver export to a SQL Table is used to update the GDB table " + \
             "that particapates in a one-to-many relationship class with the buildings feature class"
-        self.canRunInBackground = True
+        self.canRunInBackground = False
 
     def getParameterInfo(self):
         """Define parameter definitions"""
@@ -38,7 +39,7 @@ class WeaverUpdate(object):
             direction='Input'
         )
         param0.defaultEnvironmentName = 'scratchFolder'
-
+        param0.value = r"C:\Users\rhughes\Documents\ArcGIS"
 
         # name of the database instance
         param01 = arcpy.Parameter(
@@ -98,7 +99,7 @@ class WeaverUpdate(object):
             parameterType='Required',
             direction='Input'
         )
-        param06.value = "Building_Information"
+        param06.value = r"Database Connections\bcad_noise.sde\bcad_noise.DBO.NoiseMitigation\bcad_noise.DBO.Building_Information"
 
         # sql table used to update the geodatabase table
         param07 = arcpy.Parameter(
@@ -108,6 +109,7 @@ class WeaverUpdate(object):
             parameterType='Required',
             direction='Input'
         )
+        param07.value = r"Database Connections\bcad_noise.sde\bcad_noise.DBO.weaver_formatted"
 
         # GDB table with holds the weaver data from the sql table
         param08 = arcpy.Parameter(
@@ -117,6 +119,7 @@ class WeaverUpdate(object):
             parameterType='Required',
             direction='Input'
         )
+        param08.value = r"Database Connections\bcad_noise.sde\bcad_noise.DBO.WEAVER"
 
         param09 = arcpy.Parameter(
             displayName='Buildings ProjectName Field',
@@ -126,6 +129,7 @@ class WeaverUpdate(object):
             direction='Input'
         )
         param09.parameterDependencies = [param06.name]
+        param09.value = "projectName"
 
         param10 = arcpy.Parameter(
             displayName='Buildings PhaseName Field',
@@ -135,6 +139,7 @@ class WeaverUpdate(object):
             direction='Input'
         )
         param10.parameterDependencies = [param06.name]
+        param10.value = "phaseName"
 
         param11 = arcpy.Parameter(
             displayName='Buildings FolioID Field',
@@ -144,6 +149,7 @@ class WeaverUpdate(object):
             direction='Input'
         )
         param11.parameterDependencies = [param06.name]
+        param11.value = "folioId"
 
         param12 = arcpy.Parameter(
             displayName='GDB Table ProjectName Field',
@@ -153,6 +159,7 @@ class WeaverUpdate(object):
             direction='Input'
         )
         param12.parameterDependencies = [param08.name]
+        param12.value = "ProjectName"
 
         param13 = arcpy.Parameter(
             displayName='GDB Table PhaseName Field',
@@ -162,28 +169,21 @@ class WeaverUpdate(object):
             direction='Input'
         )
         param13.parameterDependencies = [param08.name]
+        param13.value = "PhaseName"
 
         param14 = arcpy.Parameter(
-            displayName='GDB Table FolioID Field',
-            name='gdb_table_folioId_name',
+            displayName='GDB Table FolioNumber Field',
+            name='gdb_table_folioNumber_name',
             datatype='Field',
             parameterType='Required',
             direction='Input'
         )
         param14.parameterDependencies = [param08.name]
-
-        # name of the dataset that holds the Noise Mitigation data
-        param15 = arcpy.Parameter(
-            displayName='Noise Mit Feature Dataset',
-            name='noise_mit_dataset',
-            datatype='DEFeatureDataset',
-            parameterType='Required',
-            direction='Input'
-        )
+        param14.value = "FolioNumber"
 
         params = [param0, param01, param02, param03, param04, param05, param06,
                   param07, param08, param09, param10, param11, param12, param13,
-                  param14, param15]
+                  param14]
 
         return params
 
@@ -207,7 +207,10 @@ class WeaverUpdate(object):
         out_f, inst, uid, pwd, database, p_version, bldgs,\
         SQL_Table, GDB_Table, bldg_projectName, bldg_phaseName,\
         bldg_folioId, gdb_table_projectName, gdb_table_phaseName,\
-        gdb_table_folioId, dataset = [p.valueAsText for p in parameters]
+        gdb_table_folioId = [p.valueAsText for p in parameters]
+
+        GDB_Table_name = arcpy.Describe(GDB_Table).basename
+        Buildings_name = arcpy.Describe(bldgs).basename
 
         # name of the connection file to the default version
         out_n = "Weaver.sde"
@@ -239,40 +242,47 @@ class WeaverUpdate(object):
             sde_file = connection.create_sde_connection()
 
             # These values need to be removed when the user parameters are created
-            SQL_Table = arcpy.ListTables("*weaver_formatted")[0]
-            GDB_Table = arcpy.ListTables("*WEAVER")[0]
             result = Tool.compare_fields(sql_table=SQL_Table, existing_table=GDB_Table)
+
             compare_result = result["compare_result"]
             match_fields = result["match_fields"]
             add_rows = result["add_rows"]
             exist_rows = result["exist_rows"]
 
+            messages.addMessage({"compare result": compare_result,
+                                 "add_rows": len(add_rows),
+                                 "existing_rows": len(exist_rows)})
             # This needs to run one time to populate the attributes for PhaseName and ProjectName on the buildings
-            if compare_result or not compare_result:
+            if compare_result:
                 # create VersionManager class object to create new version, connect to it,
                 # and create an sde connection file, set as current workspace
                 # out_folder, platform, instance, target_sde, version_name, new_name, parent_version
-                version_manager = VersionManager(out_f, plat, inst, sde_file,
+                version_manager = VersionManager(opt, out_f, uid, plat, inst, sde_file,
                                                  "NoiseMit", p_version)
                 version_manager.clean_previous()
                 version_sde_file = version_manager.connect_version()
+
+                if os.path.exists(version_sde_file):
+                    messages.addMessage(version_sde_file)
+                else:
+                    messages.addErrorMessage("version_sde_file not created")
 
                 editor = da.Editor(version_sde_file)
                 editor.startEditing()
 
                 # create WeaverUpdater class object
-                weaver_updater = WeaverUpdater(match_fields, GDB_Table, add_rows, exist_rows, version_sde_file, editor)
+                gdb_table = arcpy.ListTables("*{}".format(GDB_Table_name))[0]
+                weaver_updater = WeaverUpdater(match_fields, gdb_table, add_rows, exist_rows, version_sde_file, editor)
 
                 # get the number for rows per parcel ID
                 pid_dict = weaver_updater.count_pid()
                 # should return True when editing is complete
                 table_updated = weaver_updater.perform_update()
 
-                # get the noise mit dataset and the buildings feature class
-                dataset_workspace = arcpy.ListDatasets("*{}*".format(dataset))[0]
-                buildings = arcpy.ListFeatureClasses("*{}*".format(bldgs), "Polygon", dataset_workspace)[0]
                 # create BuildingUpdater class object
-                building_updater = BuildingsUpdater(buildings, GDB_Table, building_attributes, weaver_attributes,
+                noisemit = arcpy.ListDatasets("*Noise*")[0]
+                buildings = arcpy.ListFeatureClasses("*{}".format(bldgs), noisemit)
+                building_updater = BuildingsUpdater(buildings, gdb_table, building_attributes, weaver_attributes,
                                                     version_sde_file, editor)
                 # should return True when editing it complete
                 buildings_updated = building_updater.update_buildings()
@@ -286,12 +296,8 @@ class WeaverUpdate(object):
                 print "The files are identical, no edits needed"
 
             env.workspace = sde_file
-            # get the noise mit dataset and the buildings feature class
-            dataset_workspace = arcpy.ListDatasets("*{}*".format(dataset))[0]
-            buildings = arcpy.ListFeatureClasses("*{}*".format(bldgs), "Polygon", dataset_workspace)[0]
-
             fields = [x for x in building_attributes.itervalues()]
-            cursor = da.SearchCursor(buildings, fields)
+            cursor = da.SearchCursor(bldgs, fields)
             values = cursor.next()
             del cursor
             print values
@@ -301,4 +307,3 @@ class WeaverUpdate(object):
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_exception(exc_type, exc_value, exc_traceback,
                                       limit=2, file=sys.stdout)
-            messages.addErrorMessage(arcpy.GetMessages())

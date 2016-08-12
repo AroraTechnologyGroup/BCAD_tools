@@ -125,7 +125,8 @@ class SdeConnector:
 
 
 class VersionManager:
-    def __init__(self, out_folder, platform, instance, target_sde, new_name, parent_version):
+    def __init__(self, opt, out_folder, uid, platform, instance, target_sde, new_name, parent_version):
+        self.opt = opt
         self.instance = instance
         self.platform = platform
         self.out_folder = out_folder
@@ -172,7 +173,7 @@ class VersionManager:
 
 
             # create an sde connection file to the new version
-            v_opt = opt.copy()
+            v_opt = self.opt.copy()
             v_opt["version"] = self.version_name
 
             # create SdeConnector object for the version
