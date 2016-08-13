@@ -1,73 +1,12 @@
 import unittest
-import arcpy
 from arcpy import da
 from unittest import TestCase
 import UpdateNoiseMitSDE as Tool
-from UpdateNoiseMitSDE import WeaverUpdater as Updater
+from UpdateNoiseMitSDE import GDBTableUpdater as Updater
 from UpdateNoiseMitSDE import VersionManager as Manager
 from UpdateNoiseMitSDE import SdeConnector as Connector
 import os
-
-# folder to store the connection files created in the script
-out_f = r"C:\Users\rhughes\Documents\ArcGIS"
-# name of the connection file to the default version
-out_n = "Weaver.sde"
-
-# name of the version to be created for editing
-edit_version_name = "NoiseMit"
-
-# name of the database instance
-#inst = "ARORALAPTOP50\SDESQLEXPRESS"
-inst = r"sql-server-azure.database.windows.net"
-
-# username for the database user
-#uid = "Richard"
-uid = "bcad"
-
-# password for the database user
-#pwd = "Heddie01!"
-pwd = "AroraGIS123"
-
-# name of the database
-#database = "DEVELOPMENT_BCAD.sde"
-database = "bcad_noise"
-
-# variable for the parent version of the database
-p_version = "dbo.DEFAULT"
-
-# name of building polygon feature class
-bldgs = r"Building_Information"
-
-# sql table used to update the geodatabase table
-SQL_Table = ""
-
-# GDB table with holds the weaver data from the sql table
-GDB_Table = ""
-
-# attribute fields on the building feature class that need to be selected by the user
-building_attributes = {"Project Name": "projectName",
-                       "Phase Name": "phaseName",
-                       "Folio Number": "folioId"}
-
-# attribute fields on the weaver geodatabase table that need to be selected by the user
-weaver_attributes = {"Project Name": "ProjectName",
-                     "Phase Name": "PhaseName",
-                     "Folio Number": "FolioNumber"}
-
-# name of the dataset that holds the Noise Mitigation data
-dataset = "NoiseMitigation"
-
-opt = {"account_authentication": "DATABASE_AUTH",
-               "username": uid,
-               "password": pwd,
-               "save_user_pass": "SAVE_USERNAME",
-               "database": database,
-               "schema": "#",
-               "version_type": "TRANSACTIONAL",
-               "version": p_version,
-               "date": ""}
-
-plat = "SQL_SERVER"
+from BCAD_NoiseMit_Tools import WeaverUpdate as PythonTool
 
 
 class TestWeaverUpdater(TestCase):
@@ -93,14 +32,20 @@ class TestWeaverUpdater(TestCase):
 
     @classmethod
     def setUpClass(cls):
+        params = PythonTool.getParameterInfo()
+        out_f, inst, uid, pwd, database, p_version, bldgs, \
+        SQL_Table, GDB_Table, bldg_projectName, bldg_phaseName, \
+        bldg_folioId, gdb_table_projectName, gdb_table_phaseName = [p.valueAsText for p in params[:-1]]
+
+        gdb_table_folioId, GDB_Table_name, Buildings_name, out_n, edit_connection_name, \
+        opt, plat, building_attributes, weaver_attributes = [p for p in params[-1]]
+
         connector = Connector(out_folder=out_f, out_name=out_n, platform=plat, instance=inst, options=opt)
         cls.sde_file = connector.create_sde_connection()
         manager = Manager(out_folder=out_f, platform=plat, instance=inst, target_sde=cls.sde_file,
                           new_name="NoiseMit", parent_version=p_version)
         manager.clean_previous()
         cls.version_sde_file = manager.connect_version()
-        SQL_Table = arcpy.ListTables("*weaver_formatted")[0]
-        GDB_Table = arcpy.ListTables("*WEAVER")[0]
         result = Tool.compare_fields(sql_table=SQL_Table, existing_table=GDB_Table)
         match_fields = result["match_fields"]
         add_rows = result["add_rows"]
@@ -116,5 +61,6 @@ class TestWeaverUpdater(TestCase):
             os.remove(x)
         cls.updater.editor.stopEditing(False)
         del cls.updater.editor
+
 if __name__ == "__main__":
     unittest.main()

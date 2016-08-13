@@ -208,7 +208,7 @@ class VersionManager:
             raise VersionException("Unable to rec/post edits :: {}".format(e.message))
 
 
-class WeaverUpdater:
+class GDBTableUpdater:
     """match_fields, w_table, add_rows, rem_rows, version_sde_file, editor"""
     def __init__(self, match_fields, write_table, read_rows, remove_rows, version_sde, editor):
         self.match_fields = match_fields

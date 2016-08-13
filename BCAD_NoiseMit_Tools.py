@@ -5,7 +5,7 @@ from arcpy import da
 from arcpy import env
 import traceback
 import UpdateNoiseMitSDE as Tool
-from UpdateNoiseMitSDE import SdeConnector, VersionManager, WeaverUpdater, BuildingsUpdater
+from UpdateNoiseMitSDE import SdeConnector, VersionManager, GDBTableUpdater, BuildingsUpdater
 env.overwriteOutput = 1
 
 
@@ -181,9 +181,40 @@ class WeaverUpdate(object):
         param14.parameterDependencies = [param08.name]
         param14.value = "FolioNumber"
 
+        GDB_Table_name = arcpy.Describe(param08.valueAsText).basename.split('.')[-1]
+        Buildings_name = arcpy.Describe(param06.valueAsText).basename.split('.')[-1]
+
+        # name of the connection file to the default version
+        out_n = "Weaver.sde"
+        # name of the version to be created for editing
+        edit_connection_name = "NoiseMit.sde"
+        opt = {"account_authentication": "DATABASE_AUTH",
+               "username": param02.valueAsText,
+               "password": param03.valueAsText,
+               "save_user_pass": "SAVE_USERNAME",
+               "database": param04.valueAsText,
+               "schema": "#",
+               "version_type": "TRANSACTIONAL",
+               "version": param05.valueAsText,
+               "date": ""}
+
+        plat = "SQL_SERVER"
+        # attribute fields on the building feature class that need to be selected by the user
+        building_attributes = {"Project Name": param09.valueAsText,
+                               "Phase Name": param10.valueAsText,
+                               "Folio Number": param11.valueAsText}
+        # attribute fields on the weaver geodatabase table that need to be selected by the user
+        weaver_attributes = {"Project Name": param12.valueAsText,
+                             "Phase Name": param13.valueAsText,
+                             "Folio Number": param14.valueAsText}
+        # These variables are derived from the user parameters, but should be set in this function
+        # to allow for importing into the unittests directly.
+        composites = [GDB_Table_name, Buildings_name, out_n, edit_connection_name,
+                      opt, plat, building_attributes, weaver_attributes]
+
         params = [param0, param01, param02, param03, param04, param05, param06,
                   param07, param08, param09, param10, param11, param12, param13,
-                  param14]
+                  param14, composites]
 
         return params
 
@@ -207,35 +238,10 @@ class WeaverUpdate(object):
 
         out_f, inst, uid, pwd, database, p_version, bldgs,\
         SQL_Table, GDB_Table, bldg_projectName, bldg_phaseName,\
-        bldg_folioId, gdb_table_projectName, gdb_table_phaseName,\
-        gdb_table_folioId = [p.valueAsText for p in parameters]
+        bldg_folioId, gdb_table_projectName, gdb_table_phaseName = [p.valueAsText for p in parameters[:-1]]
 
-        GDB_Table_name = arcpy.Describe(GDB_Table).basename.split('.')[-1]
-        Buildings_name = arcpy.Describe(bldgs).basename.split('.')[-1]
-
-        # name of the connection file to the default version
-        out_n = "Weaver.sde"
-        # name of the version to be created for editing
-        edit_connection_name = "NoiseMit.sde"
-        opt = {"account_authentication": "DATABASE_AUTH",
-               "username": uid,
-               "password": pwd,
-               "save_user_pass": "SAVE_USERNAME",
-               "database": database,
-               "schema": "#",
-               "version_type": "TRANSACTIONAL",
-               "version": p_version,
-               "date": ""}
-
-        plat = "SQL_SERVER"
-        # attribute fields on the building feature class that need to be selected by the user
-        building_attributes = {"Project Name": bldg_projectName,
-                               "Phase Name": bldg_phaseName,
-                               "Folio Number": bldg_folioId}
-        # attribute fields on the weaver geodatabase table that need to be selected by the user
-        weaver_attributes = {"Project Name": gdb_table_projectName,
-                             "Phase Name": gdb_table_phaseName,
-                             "Folio Number": gdb_table_folioId}
+        gdb_table_folioId, GDB_Table_name, Buildings_name, out_n, edit_connection_name, \
+        opt, plat, building_attributes, weaver_attributes = [p for p in parameters[-1]]
 
         """this is the main body of the tool"""
         try:
@@ -251,9 +257,10 @@ class WeaverUpdate(object):
             exist_rows = result["exist_rows"]
 
             arcpy.AddMessage({"compare result": compare_result,
-                                 "add_rows": len(add_rows),
-                                 "existing_rows": len(exist_rows)})
-            # This needs to run one time to populate the attributes for PhaseName and ProjectName on the buildings
+                              "add_rows": len(add_rows),
+                              "existing_rows": len(exist_rows)})
+
+            # compare result if True means that changes need to be made to the GDB Table and thus the Buildings
             if compare_result:
                 # create VersionManager class object to create new version, connect to it,
                 # and create an sde connection file, set as current workspace
@@ -271,16 +278,18 @@ class WeaverUpdate(object):
                 editor = da.Editor(version_sde_file)
                 editor.startEditing()
 
-                # create WeaverUpdater class object
                 gdb_table = arcpy.ListTables("*{}".format(GDB_Table_name))[0]
                 if arcpy.Exists(gdb_table):
-                    weaver_updater = WeaverUpdater(match_fields, gdb_table, add_rows, exist_rows, version_sde_file, editor)
+                    # create GDBTableUpdater class object
+                    weaver_updater = GDBTableUpdater(match_fields, gdb_table, add_rows, exist_rows,
+                                                     version_sde_file, editor)
 
-                    # get the number for rows per parcel ID
+                    # set the number of rows per parcel ID as class property
                     pid_dict = weaver_updater.count_pid()
                     # should return True when editing is complete
                     table_updated = weaver_updater.perform_update()
 
+                    env.workspace = version_sde_file
                     # create BuildingUpdater class object
                     noisemit = arcpy.ListDatasets("*Noise*")[0]
                     dataset_path = os.path.join(env.workspace, noisemit)
@@ -291,8 +300,8 @@ class WeaverUpdate(object):
                         if arcpy.Exists(buildings):
                             env.workspace = version_sde_file
                             buildings = os.path.join(noisemit, buildings)
-                            building_updater = BuildingsUpdater(buildings, gdb_table, building_attributes, weaver_attributes,
-                                                                version_sde_file, editor)
+                            building_updater = BuildingsUpdater(buildings, gdb_table, building_attributes,
+                                                                weaver_attributes, version_sde_file, editor)
                             # should return True when editing it complete
                             buildings_updated = building_updater.update_buildings()
 
@@ -309,13 +318,13 @@ class WeaverUpdate(object):
                     else:
                         editor.stopEditing(False)
                         del editor
-                        arcpy.AddError("Unable to determine the buildings feature class " + \
-                                          "using the version connection")
+                        arcpy.AddError("Unable to determine the buildings feature class\
+                                       using the version connection")
                 else:
                     editor.stopEditing(False)
                     del editor
-                    arcpy.AddError("Unable to determine the gdb table " + \
-                                      "using the version connection")
+                    arcpy.AddError("Unable to determine the gdb table\
+                                    using the version connection")
             else:
                 arcpy.AddMessage("The files are identical, no edits needed")
 
