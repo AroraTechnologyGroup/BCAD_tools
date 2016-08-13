@@ -6,7 +6,7 @@ from UpdateNoiseMitSDE import GDBTableUpdater as Updater
 from UpdateNoiseMitSDE import VersionManager as Manager
 from UpdateNoiseMitSDE import SdeConnector as Connector
 import os
-from BCAD_NoiseMit_Tools import WeaverUpdate as PythonTool
+from BCAD_NoiseMit_Tools import WeaverGDBUpdate as PythonTool
 
 
 class TestWeaverUpdater(TestCase):
@@ -32,18 +32,24 @@ class TestWeaverUpdater(TestCase):
 
     @classmethod
     def setUpClass(cls):
-        params = PythonTool.getParameterInfo()
-        out_f, inst, uid, pwd, database, p_version, bldgs, \
-        SQL_Table, GDB_Table, bldg_projectName, bldg_phaseName, \
-        bldg_folioId, gdb_table_projectName, gdb_table_phaseName = [p.valueAsText for p in params[:-1]]
+        tool = PythonTool()
+        parameters = tool.getParameterInfo()
+        params = tool.process_parameters(parameters=parameters)
+        out_f = params["out_f"]
+        out_n = params["out_n"]
+        plat = params["plat"]
+        inst = params["inst"]
+        opt = params["opt"]
+        p_version = params["p_version"]
+        SQL_Table = params["SQL_Table"]
+        GDB_Table = params["GDB_Table"]
+        edit_version_name = params["edit_version_name"]
 
-        gdb_table_folioId, GDB_Table_name, Buildings_name, out_n, edit_connection_name, \
-        opt, plat, building_attributes, weaver_attributes = [p for p in params[-1]]
-
-        connector = Connector(out_folder=out_f, out_name=out_n, platform=plat, instance=inst, options=opt)
+        connector = Connector(out_folder=out_f, out_name=out_n, platform=plat, instance=inst,
+                              options=opt)
         cls.sde_file = connector.create_sde_connection()
         manager = Manager(out_folder=out_f, platform=plat, instance=inst, target_sde=cls.sde_file,
-                          new_name="NoiseMit", parent_version=p_version)
+                          new_name=edit_version_name, parent_version=p_version)
         manager.clean_previous()
         cls.version_sde_file = manager.connect_version()
         result = Tool.compare_fields(sql_table=SQL_Table, existing_table=GDB_Table)

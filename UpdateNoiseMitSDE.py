@@ -292,8 +292,8 @@ class GDBTableUpdater:
 
 class BuildingsUpdater:
     """buildings, w_table, building_attributes, weaver_attributes,version_sde_file, editor"""
-    def __init__(self, b, rel_table, bldg_atts, weav_atts, version_sde, editor):
-        self.buildings = b
+    def __init__(self, bldgs, rel_table, bldg_atts, weav_atts, version_sde, editor):
+        self.buildings = bldgs
         self.rel_table = rel_table
         self.bldg_folio = bldg_atts["Folio Number"]
         self.bldg_update_fields = [bldg_atts["Project Name"], bldg_atts["Phase Name"]]
@@ -362,7 +362,11 @@ class BuildingsUpdater:
                     project_name = concat_list(pn)
 
                     new_row = [folio_id, phase_name, project_name]
-                    _cursor.updateRow(new_row)
+                    if _row != new_row:
+                        _cursor.updateRow(new_row)
+                    else:
+                        # the row has not changed
+                        pass
                 else:
                     print "{} is not in the weaver table".format(folio_id)
         del _row

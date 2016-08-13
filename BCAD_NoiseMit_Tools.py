@@ -17,13 +17,13 @@ class Toolbox(object):
         self.alias = "Noise Mit Tools"
 
         # List of tool classes associated with this toolbox
-        self.tools = [WeaverUpdate]
+        self.tools = [WeaverGDBUpdate]
 
 
-class WeaverUpdate(object):
+class WeaverGDBUpdate(object):
     def __init__(self):
         """Define the tool (tool name is the name of the class)."""
-        self.label = "WeaverUpdate to GDB table"
+        self.label = "WeaverGDBUpdate to GDB table"
         self.description = "The Weaver export to a SQL Table is used to update the GDB table " + \
             "that particapates in a one-to-many relationship class with the buildings feature class"
         self.canRunInBackground = True
@@ -39,7 +39,7 @@ class WeaverUpdate(object):
             direction='Input'
         )
         param0.defaultEnvironmentName = 'scratchFolder'
-        param0.value = r"C:\Users\rhughes\AppData\Roaming\ESRI\Desktop10.3\ArcCatalog"
+        param0.value = r"G:\Users\rhughes\AppData\Roaming\ESRI\Desktop10.4\ArcCatalog"
 
         # name of the database instance
         param01 = arcpy.Parameter(
@@ -186,8 +186,11 @@ class WeaverUpdate(object):
 
         # name of the connection file to the default version
         out_n = "Weaver.sde"
-        # name of the version to be created for editing
+        # name of the version_sde_file to be created for editing
         edit_connection_name = "NoiseMit.sde"
+        # name of the version to be created for editing
+        edit_version_name = "NoiseMit"
+
         opt = {"account_authentication": "DATABASE_AUTH",
                "username": param02.valueAsText,
                "password": param03.valueAsText,
@@ -210,7 +213,7 @@ class WeaverUpdate(object):
         # These variables are derived from the user parameters, but should be set in this function
         # to allow for importing into the unittests directly.
         composites = [GDB_Table_name, Buildings_name, out_n, edit_connection_name,
-                      opt, plat, building_attributes, weaver_attributes]
+                      edit_version_name, plat, building_attributes, weaver_attributes]
 
         params = [param0, param01, param02, param03, param04, param05, param06,
                   param07, param08, param09, param10, param11, param12, param13,
@@ -233,17 +236,66 @@ class WeaverUpdate(object):
         parameter.  This method is called after internal validation."""
         return
 
-    def execute(self, parameters, messages):
-        """The source code of the tool."""
+    def process_parameters(self, parameters):
+        # These are the parameters defined by the user
+        out_f, inst, uid, pwd, database, p_version, bldgs, \
+        SQL_Table, GDB_Table, bldg_projectName, bldg_phaseName, \
+        bldg_folioId, gdb_table_projectName, gdb_table_phaseName, \
+        gdb_table_folioId  = [p.valueAsText for p in parameters[:-1]]
 
-        out_f, inst, uid, pwd, database, p_version, bldgs,\
-        SQL_Table, GDB_Table, bldg_projectName, bldg_phaseName,\
-        bldg_folioId, gdb_table_projectName, gdb_table_phaseName = [p.valueAsText for p in parameters[:-1]]
-
-        gdb_table_folioId, GDB_Table_name, Buildings_name, out_n, edit_connection_name, \
+        # These are the parameters derived from the user inputs
+        GDB_Table_name, Buildings_name, out_n, edit_connection_name, edit_version_name, \
         opt, plat, building_attributes, weaver_attributes = [p for p in parameters[-1]]
 
-        """this is the main body of the tool"""
+        final_parameters = {
+            "out_f": out_f,
+            "inst": inst,
+            "uid": uid,
+            "pwd": pwd,
+            "database": database,
+            "P_version": p_version,
+            "bldgs": bldgs,
+            "SQL_Table": SQL_Table,
+            "GDB_Table": GDB_Table,
+            "bldg_projectName": bldg_projectName,
+            "bldg_phaseName": bldg_phaseName,
+            "bldg_folioId": bldg_folioId,
+            "gdb_table_projectName": gdb_table_projectName,
+            "gdb_table_phaseName": gdb_table_phaseName,
+            "gdb_table_folioId": gdb_table_folioId,
+            "GDB_Table_name": GDB_Table_name,
+            "Buildings_name": Buildings_name,
+            "out_n": out_n,
+            "edit_connection_name": edit_connection_name,
+            "edit_version_name": edit_version_name,
+            "opt": opt,
+            "plat": plat,
+            "building_attributes": building_attributes,
+            "weaver_attributes": weaver_attributes
+        }
+
+        return final_parameters
+
+    def execute(self, parameters, messages):
+        """The method calls classes defined in external files."""
+
+        params = self.process_parameters(parameters=parameters)
+        out_f = params["out_f"]
+        out_n = params["out_n"]
+        plat = params["plat"]
+        inst = params["inst"]
+        opt = params["opt"]
+        SQL_Table = params["SQL_Table"]
+        GDB_Table = params["GDB_Table"]
+        uid = params["uid"]
+        p_version = params["p_version"]
+        GDB_Table_name = params["GDB_Table_name"]
+        Buildings_name = params["Buildings_name"]
+        building_attributes = params["building_attributes"]
+        weaver_attributes = params["weaver_attributes"]
+        bldgs = params["bldgs"]
+        edit_version_name = params["edit_version_name"]
+
         try:
             connection = SdeConnector(out_f, out_n, plat, inst, opt)
             sde_file = connection.create_sde_connection()
@@ -266,7 +318,7 @@ class WeaverUpdate(object):
                 # and create an sde connection file, set as current workspace
                 # out_folder, platform, instance, target_sde, version_name, new_name, parent_version
                 version_manager = VersionManager(opt, out_f, uid, plat, inst, sde_file,
-                                                 "NoiseMit", p_version)
+                                                 edit_version_name, p_version)
                 version_manager.clean_previous()
                 version_sde_file = version_manager.connect_version()
 
@@ -342,5 +394,4 @@ class WeaverUpdate(object):
 
         except:
             exc_type, exc_value, exc_traceback = sys.exc_info()
-            arcpy.AddError(repr(traceback.format_exception(exc_type, exc_value,
-                                          exc_traceback)))
+            arcpy.AddError(repr(traceback.format_exception(exc_type, exc_value,exc_traceback)))
