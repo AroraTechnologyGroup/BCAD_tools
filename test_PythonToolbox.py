@@ -4,6 +4,12 @@ from BCAD_NoiseMit_Tools import WeaverGDBUpdate as PythonTool
 
 
 class TestWeaverUpdate(TestCase):
+    def setUp(self):
+        self.tool = PythonTool()
+
+    def tearDown(self):
+        self.tool = None
+
     def test_updateParameters(self):
         params = self.tool.getParameterInfo()
         self.assertEquals(16, len(params))
@@ -13,9 +19,9 @@ class TestWeaverUpdate(TestCase):
         result = self.tool.execute(params, '#')
         self.assertTrue(result)
 
-    @classmethod
-    def setUpClass(cls):
-        cls.tool = PythonTool()
+
+def suite():
+    return unittest.TestLoader().loadTestsFromTestCase(TestWeaverUpdate)
 
 if __name__ == '__main__':
     unittest.main()
