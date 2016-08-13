@@ -1,9 +1,9 @@
-import Tools
+import os
 import unittest
 from unittest import TestCase
-from UpdateNoiseMitSDE import VersionManager as Manager
+
 from UpdateNoiseMitSDE import SdeConnector as Connector
-import os
+from UpdateNoiseMitSDE import VersionManager as Manager
 
 # folder to store the connection files created in the script
 out_f = r"C:\Users\rhughes\Documents\ArcGIS"
