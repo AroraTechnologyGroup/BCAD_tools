@@ -23,10 +23,10 @@ class Toolbox(object):
 class WeaverGDBUpdate(object):
     def __init__(self):
         """Define the tool (tool name is the name of the class)."""
-        self.label = "WeaverGDBUpdate to GDB table"
+        self.label = "WeaverGDBUpdate"
         self.description = "The Weaver export to a SQL Table is used to update the GDB table " + \
             "that particapates in a one-to-many relationship class with the buildings feature class"
-        self.canRunInBackground = True
+        self.canRunInBackground = False
 
     def getParameterInfo(self):
         """Define parameter definitions"""
@@ -39,7 +39,7 @@ class WeaverGDBUpdate(object):
             direction='Input'
         )
         param0.defaultEnvironmentName = 'scratchFolder'
-        param0.value = r"G:\Users\rhughes\AppData\Roaming\ESRI\Desktop10.4\ArcCatalog"
+        param0.value = env.scratchFolder
 
         # name of the database instance
         param01 = arcpy.Parameter(
@@ -181,43 +181,9 @@ class WeaverGDBUpdate(object):
         param14.parameterDependencies = [param08.name]
         param14.value = "FolioNumber"
 
-        GDB_Table_name = arcpy.Describe(param08.valueAsText).basename.split('.')[-1]
-        Buildings_name = arcpy.Describe(param06.valueAsText).basename.split('.')[-1]
-
-        # name of the connection file to the default version
-        out_n = "Weaver.sde"
-        # name of the version_sde_file to be created for editing
-        edit_connection_name = "NoiseMit.sde"
-        # name of the version to be created for editing
-        edit_version_name = "NoiseMit"
-
-        opt = {"account_authentication": "DATABASE_AUTH",
-               "username": param02.valueAsText,
-               "password": param03.valueAsText,
-               "save_user_pass": "SAVE_USERNAME",
-               "database": param04.valueAsText,
-               "schema": "#",
-               "version_type": "TRANSACTIONAL",
-               "version": param05.valueAsText,
-               "date": ""}
-
-        plat = "SQL_SERVER"
-        # attribute fields on the building feature class that need to be selected by the user
-        building_attributes = {"Project Name": param09.valueAsText,
-                               "Phase Name": param10.valueAsText,
-                               "Folio Number": param11.valueAsText}
-        # attribute fields on the weaver geodatabase table that need to be selected by the user
-        weaver_attributes = {"Project Name": param12.valueAsText,
-                             "Phase Name": param13.valueAsText,
-                             "Folio Number": param14.valueAsText}
-        # These variables are derived from the user parameters, but should be set in this function
-        # to allow for importing into the unittests directly.
-        composites = [GDB_Table_name, Buildings_name, out_n, edit_connection_name,
-                      edit_version_name, plat, building_attributes, weaver_attributes]
-
         params = [param0, param01, param02, param03, param04, param05, param06,
                   param07, param08, param09, param10, param11, param12, param13,
-                  param14, composites]
+                  param14]
 
         return params
 
@@ -239,13 +205,45 @@ class WeaverGDBUpdate(object):
     def process_parameters(self, parameters):
         # These are the parameters defined by the user
         out_f, inst, uid, pwd, database, p_version, bldgs, \
-        SQL_Table, GDB_Table, bldg_projectName, bldg_phaseName, \
+        sql_table, gdb_table, bldg_projectName, bldg_phaseName, \
         bldg_folioId, gdb_table_projectName, gdb_table_phaseName, \
-        gdb_table_folioId  = [p.valueAsText for p in parameters[:-1]]
+        gdb_table_folioId  = [p.valueAsText for p in parameters]
 
         # These are the parameters derived from the user inputs
-        GDB_Table_name, Buildings_name, out_n, edit_connection_name, edit_version_name, \
-        opt, plat, building_attributes, weaver_attributes = [p for p in parameters[-1]]
+        """composites = [GDB_Table_name, Buildings_name, out_n, edit_connection_name,
+                      edit_version_name, plat, building_attributes, weaver_attributes]"""
+
+        gdb_table_name = arcpy.Describe(gdb_table).basename.split('.')[-1]
+        buildings_name = arcpy.Describe(bldgs).basename.split('.')[-1]
+
+        # name of the connection file to the default version
+        out_n = "Weaver.sde"
+        # name of the version_sde_file to be created for editing
+        edit_connection_name = "NoiseMit.sde"
+        # name of the version to be created for editing
+        edit_version_name = "NoiseMit"
+
+        opt = {"account_authentication": "DATABASE_AUTH",
+               "username": uid,
+               "password": pwd,
+               "save_user_pass": "SAVE_USERNAME",
+               "database": database,
+               "schema": "#",
+               "version_type": "TRANSACTIONAL",
+               "version": p_version,
+               "date": ""}
+
+        plat = "SQL_SERVER"
+        # attribute fields on the building feature class that need to be selected by the user
+        building_attributes = {"Project Name": bldg_projectName,
+                               "Phase Name": bldg_phaseName,
+                               "Folio Number": bldg_folioId}
+        # attribute fields on the weaver geodatabase table that need to be selected by the user
+        weaver_attributes = {"Project Name": gdb_table_projectName,
+                             "Phase Name": gdb_table_phaseName,
+                             "Folio Number": gdb_table_folioId}
+        # These variables are derived from the user parameters, but should be set in this function
+        # to allow for importing into the unittests directly.
 
         final_parameters = {
             "out_f": out_f,
@@ -253,18 +251,18 @@ class WeaverGDBUpdate(object):
             "uid": uid,
             "pwd": pwd,
             "database": database,
-            "P_version": p_version,
+            "p_version": p_version,
             "bldgs": bldgs,
-            "SQL_Table": SQL_Table,
-            "GDB_Table": GDB_Table,
+            "sql_table": sql_table,
+            "gdb_table": gdb_table,
             "bldg_projectName": bldg_projectName,
             "bldg_phaseName": bldg_phaseName,
             "bldg_folioId": bldg_folioId,
             "gdb_table_projectName": gdb_table_projectName,
             "gdb_table_phaseName": gdb_table_phaseName,
             "gdb_table_folioId": gdb_table_folioId,
-            "GDB_Table_name": GDB_Table_name,
-            "Buildings_name": Buildings_name,
+            "gdb_table_name": gdb_table_name,
+            "buildings_name": buildings_name,
             "out_n": out_n,
             "edit_connection_name": edit_connection_name,
             "edit_version_name": edit_version_name,
@@ -276,6 +274,19 @@ class WeaverGDBUpdate(object):
 
         return final_parameters
 
+    def get_versioned_fc(self, workspace, name):
+        env.workspace = workspace
+        noisemit = arcpy.ListDatasets("*Noise*")[0]
+        dataset_path = os.path.join(env.workspace, noisemit)
+        env.workspace = dataset_path
+        buildings = arcpy.ListFeatureClasses("*{}".format(name))
+        if len(buildings) == 1:
+            buildings = buildings.pop()
+            if arcpy.Exists(buildings):
+                env.workspace = workspace
+                buildings = os.path.join(noisemit, buildings)
+                return buildings
+
     def execute(self, parameters, messages):
         """The method calls classes defined in external files."""
 
@@ -285,12 +296,12 @@ class WeaverGDBUpdate(object):
         plat = params["plat"]
         inst = params["inst"]
         opt = params["opt"]
-        SQL_Table = params["SQL_Table"]
-        GDB_Table = params["GDB_Table"]
+        sql_table = params["sql_table"]
+        gdb_table = params["gdb_table"]
         uid = params["uid"]
         p_version = params["p_version"]
-        GDB_Table_name = params["GDB_Table_name"]
-        Buildings_name = params["Buildings_name"]
+        gdb_table_name = params["gdb_table_name"]
+        buildings_name = params["buildings_name"]
         building_attributes = params["building_attributes"]
         weaver_attributes = params["weaver_attributes"]
         bldgs = params["bldgs"]
@@ -301,7 +312,7 @@ class WeaverGDBUpdate(object):
             sde_file = connection.create_sde_connection()
 
             # These values need to be removed when the user parameters are created
-            result = Tool.compare_fields(sql_table=SQL_Table, existing_table=GDB_Table)
+            result = Tool.compare_fields(sql_table=sql_table, existing_table=gdb_table)
 
             compare_result = result["compare_result"]
             match_fields = result["match_fields"]
@@ -330,7 +341,7 @@ class WeaverGDBUpdate(object):
                 editor = da.Editor(version_sde_file)
                 editor.startEditing()
 
-                gdb_table = arcpy.ListTables("*{}".format(GDB_Table_name))[0]
+                gdb_table = arcpy.ListTables("*{}".format(gdb_table_name))[0]
                 if arcpy.Exists(gdb_table):
                     # create GDBTableUpdater class object
                     weaver_updater = GDBTableUpdater(match_fields, gdb_table, add_rows, exist_rows,
@@ -343,30 +354,31 @@ class WeaverGDBUpdate(object):
 
                     env.workspace = version_sde_file
                     # create BuildingUpdater class object
-                    noisemit = arcpy.ListDatasets("*Noise*")[0]
-                    dataset_path = os.path.join(env.workspace, noisemit)
-                    env.workspace = dataset_path
-                    buildings = arcpy.ListFeatureClasses("*{}".format(Buildings_name))
-                    if len(buildings) == 1:
-                        buildings = buildings.pop()
-                        if arcpy.Exists(buildings):
-                            env.workspace = version_sde_file
-                            buildings = os.path.join(noisemit, buildings)
-                            building_updater = BuildingsUpdater(buildings, gdb_table, building_attributes,
+                    version_buildings = self.get_versioned_fc(version_sde_file, buildings_name)
+                    if arcpy.Exists(version_buildings):
+                        try:
+                            building_updater = BuildingsUpdater(version_buildings, gdb_table, building_attributes,
                                                                 weaver_attributes, version_sde_file, editor)
+
                             # should return True when editing it complete
                             buildings_updated = building_updater.update_buildings()
 
                             editor.stopEditing(True)
                             del editor
 
-                            # move edits to the default version, and delete the noisemit version
-                            version_manager.rec_post()
+                            try:
+                                version_manager.rec_post()
+                            except Exception as e:
+                                arcpy.AddError("Exception occurred during the rec/post operation, " +
+                                "the edits were saved in the version however the version will be removed without the " +
+                                "edits having been posted to the default version :: {} :: {}".format(e.message,
+                                                                                                     traceback.print_exc()))
 
-                        else:
+                        except Exception as e:
                             editor.stopEditing(False)
                             del editor
-                            arcpy.AddError("The buildings do not exist")
+                            arcpy.AddError("Exception occured during buildings updates, edits have not been saved :: {}"\
+                                           ":: {}".format(e.message, traceback.print_exc()))
                     else:
                         editor.stopEditing(False)
                         del editor
@@ -377,6 +389,10 @@ class WeaverGDBUpdate(object):
                     del editor
                     arcpy.AddError("Unable to determine the gdb table\
                                     using the version connection")
+
+                version_manager.clean_previous()
+                del version_manager
+
             else:
                 arcpy.AddMessage("The files are identical, no edits needed")
 
@@ -386,12 +402,12 @@ class WeaverGDBUpdate(object):
             fields = [x for x in building_attributes.itervalues()]
             cursor = da.SearchCursor(bldgs, fields)
             values = cursor.next()
+            arcpy.AddMessage("This is the first row in the buildings table :: {}".format(values))
             del cursor
-            print values
 
             os.remove(sde_file)
             return True
 
         except:
             exc_type, exc_value, exc_traceback = sys.exc_info()
-            arcpy.AddError(repr(traceback.format_exception(exc_type, exc_value,exc_traceback)))
+            arcpy.AddError(repr(traceback.format_exception(exc_type, exc_value, exc_traceback)))

@@ -286,6 +286,7 @@ class GDBTableUpdater:
                 # work with one pid at a time
                 for pid in self.items.keys():
                     self.update_table(pid)
+            return True
         except Exception as e:
             arcpy.AddError(e.message)
 
@@ -344,7 +345,6 @@ class BuildingsUpdater:
                     _folios[cleaned_row[0]]["Phase Names"].append(cleaned_row[1])
                     _folios[cleaned_row[0]]["Project Names"].append(cleaned_row[2])
 
-        del _row
         del _cursor
 
         self.editor.startOperation()
@@ -369,7 +369,6 @@ class BuildingsUpdater:
                         pass
                 else:
                     print "{} is not in the weaver table".format(folio_id)
-        del _row
         del _cursor
 
         self.editor.stopOperation()

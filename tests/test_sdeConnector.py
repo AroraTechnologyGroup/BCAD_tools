@@ -2,6 +2,7 @@ from BCAD_NoiseMit_Tools import WeaverGDBUpdate as PythonTool
 from UpdateNoiseMitSDE import SdeConnector
 import unittest
 from unittest import TestCase
+import gc
 import os
 
 
@@ -30,7 +31,7 @@ class TestSdeConnector(TestCase):
     @classmethod
     def tearDownClass(cls):
         try:
-            os.remove(cls.sde_file)
+            cls.params = None
         except:
             print "unable to remove the sde file created during the test"
 
@@ -38,12 +39,14 @@ class TestSdeConnector(TestCase):
         params = self.params
         out_f = params["out_f"]
         out_n = params["out_n"]
-        self.sde_file = self.connector.create_sde_connection()
-        self.assertEqual("{}\\{}".format(out_f, out_n), self.sde_file)
+        sde_file = self.connector.create_sde_connection()
+        self.assertEqual("{}\\{}".format(out_f, out_n), sde_file)
+        os.remove(sde_file)
 
 
 def suite():
-    return unittest.TestLoader().loadTestsFromTestCase(TestSdeConnector)
+    x = unittest.TestLoader().loadTestsFromTestCase(TestSdeConnector)
+    return unittest.TestSuite(x)
 
 if __name__ == "__main__":
     unittest.main()

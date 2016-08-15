@@ -22,7 +22,7 @@ class TestCompare_fields(TestCase):
         tool = PythonTool()
         parameters = tool.getParameterInfo()
         params = tool.process_parameters(parameters=parameters)
-        out_folder = params["out_folder"]
+        out_folder = params["out_f"]
         out_name = params["out_n"]
         plat = params["plat"]
         inst = params["inst"]
@@ -41,8 +41,8 @@ class TestCompare_fields(TestCase):
 
     def test_compare_fields(self):
         params = self.params
-        SQL_Table = params["SQL_Table"]
-        GDB_Table = params["GDB_Table"]
+        SQL_Table = params["sql_table"]
+        GDB_Table = params["gdb_table"]
         for x in [SQL_Table, GDB_Table]:
             if not arcpy.Exists(x):
                 self.fail()
@@ -54,18 +54,20 @@ class TestCompare_fields(TestCase):
 
         if compare["compare_result"] == 0:
             for x in [compare["add_rows"], compare["exist_rows"]]:
+                print "length should be 0 :: {}".format(len(x))
                 self.assertEquals(len(x), 0)
 
         elif compare["compare_result"] >= 1:
             for x in [compare["add_rows"], compare["exist_rows"]]:
+                print "length should be greater than 0 :: {}".format(len(x))
                 self.assertGreaterEqual(len(x), 1)
 
 
 def suite():
     x = unittest.TestLoader().loadTestsFromTestCase(TestClean_row)
     y = unittest.TestLoader().loadTestsFromTestCase(TestCompare_fields)
-    all_suites = unittest.TestSuite([x, y])
-    return all_suites
+    return unittest.TestSuite([x, y])
+
 
 if __name__ == '__main__':
     unittest.main()

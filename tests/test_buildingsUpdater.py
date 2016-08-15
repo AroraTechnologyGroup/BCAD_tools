@@ -15,6 +15,7 @@ class TestBuildingsUpdater(TestCase):
         parameters = tool.getParameterInfo()
         params = tool.process_parameters(parameters=parameters)
         cls.params = params
+        buildings_name = params["buildings_name"]
         out_f = params["out_f"]
         out_n = params["out_n"]
         plat = params["plat"]
@@ -25,22 +26,26 @@ class TestBuildingsUpdater(TestCase):
         p_version = params["p_version"]
 
         #  out_folder, out_name, platform, instance, options
-        cls.sde_file = Connector(out_folder=out_f, out_name=out_n, platform=plat,
-                                 instance=inst, options=opt)
+        connector = Connector(out_folder=out_f, out_name=out_n, platform=plat,
+                              instance=inst, options=opt)
+        cls.sde_file = connector.create_sde_connection()
         # opt, out_folder, uid, platform, instance, target_sde, new_name, parent_version
         cls.manager = Manager(opt=opt, out_folder=out_f, uid=uid, platform=plat, instance=inst,
                               target_sde=cls.sde_file, new_name=edit_version_name,
                               parent_version=p_version)
         cls.manager.clean_previous()
         cls.version_sde = cls.manager.connect_version()
+        env.workspace = cls.version_sde
+        cls.versioned_buildings = tool.get_versioned_fc(env.workspace, buildings_name)
         cls.edit = da.Editor(cls.version_sde)
         cls.edit.startEditing()
 
     def setUp(self):
-        bldgs = self.params["bldgs"]
-        GDB_Table = self.params["GDB_Table"]
+
+        GDB_Table = self.params["gdb_table"]
         weav_atts = self.params["weaver_attributes"]
-        bldg_atts = self.params["bldg_attributes"]
+        bldg_atts = self.params["building_attributes"]
+        bldgs = self.versioned_buildings
         # bldgs, rel_table, bldg_atts, weav_atts, version_sde, editor
         self.updater = Updater(bldgs=bldgs, rel_table=GDB_Table, bldg_atts=bldg_atts,
                                weav_atts=weav_atts, version_sde=self.version_sde, editor=self.edit)
@@ -50,8 +55,8 @@ class TestBuildingsUpdater(TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        cls.editor.stopEditing(False)
-        del cls.editor
+        cls.edit.stopEditing(False)
+        del cls.edit
         env.workspace = cls.sde_file
         cls.manager.clean_previous()
         for x in [cls.version_sde, cls.sde_file]:
@@ -71,7 +76,8 @@ class TestBuildingsUpdater(TestCase):
 
 
 def suite():
-    return unittest.TestLoader().loadTestsFromTestCase(TestBuildingsUpdater)
+    x = unittest.TestLoader().loadTestsFromTestCase(TestBuildingsUpdater)
+    return unittest.TestSuite(x)
 
 if __name__ == '__main__':
     unittest.main()
