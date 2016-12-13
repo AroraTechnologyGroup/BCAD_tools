@@ -6,22 +6,28 @@ from arcpy import da
 from arcpy import env
 from collections import Counter
 import traceback
+import datetime
 env.overwriteOutput = 1
 
 
-def compare_fields(sql_table, existing_table):
+def compare_fields(sql_table, gdb_table):
     """Compare the fields between the tables to catch a schema change"""
+    arcpy.AddMessage("compare_fields function called")
+    source_fields = {}
     read_fields = arcpy.ListFields(sql_table)
-    read_field_names = [f.name for f in read_fields]
+    for x in read_fields:
+        source_fields[x.name] = x.type
 
-    existing_fields = arcpy.ListFields(existing_table)
-    existing_field_names = [f.name for f in existing_fields]
+    target_fields = {}
+    existing_fields = arcpy.ListFields(gdb_table)
+    for x in existing_fields:
+        target_fields[x.name] = x.type
 
     # The only missing field should be ObjectID because the sql table is not registered with the geodatabase
-    new_fields = [f for f in read_field_names if f not in existing_field_names]
-    missing_fields = [f for f in existing_field_names if f not in read_field_names]
+    new_fields = [f for f in source_fields.keys() if f not in target_fields.keys()]
+    missing_fields = [f for f in target_fields.keys() if f not in source_fields.keys()]
 
-    _match_fields = [f for f in existing_field_names if f in read_field_names]
+    _match_fields = [f for f in target_fields.keys() if f in source_fields.keys()]
     if "OBJECTID" in _match_fields:
         _match_fields.remove("OBJECTID")
 
@@ -34,23 +40,23 @@ def compare_fields(sql_table, existing_table):
                         or else the column will be empty".format(missing_fields))
 
     # verify that the necessary tables exist
-    for x in [sql_table, existing_table]:
+    for x in [sql_table, gdb_table]:
         if not arcpy.Exists(x):
-            arcpy.AddError("the target table and the building are not found")
+            arcpy.AddError("the target table and the gdb table are not found")
             raise Exception()
 
     # Add all of the rows from the weaver sql table to a list
     add_rows = []
     with da.SearchCursor(sql_table, _match_fields) as cursor:
         for row in cursor:
-            tuple_row = tuple([u"{}".format(x) for x in row])
+            tuple_row = tuple(row)
             add_rows.append(tuple_row)
     del cursor
 
     exist_rows = []
-    with da.SearchCursor(existing_table, _match_fields) as cursor:
+    with da.SearchCursor(gdb_table, _match_fields) as cursor:
         for row in cursor:
-            tuple_row = tuple([u"{}".format(x) for x in row])
+            tuple_row = tuple(row)
             # the rows from the GDB table, are identical to any row in the list, remove that row from the list
             if tuple_row in add_rows:
                 add_rows.remove(tuple_row)
@@ -81,9 +87,8 @@ def clean_row(_row):
     """take an input row from a cursor, clean it, then return the cleaned row"""
     cleaned_row = []
     for _x in _row:
-        if _x is None:
-            _x = "unknown"
-        _x = _x.strip()
+        if _x is not None:
+            _x = _x.strip()
         cleaned_row.append(_x)
     return cleaned_row
 
@@ -97,20 +102,21 @@ class VersionException(Exception):
 
 
 class SdeConnector:
-    def __init__(self, out_folder, out_name, platform, instance, options):
-        self.out_folder = out_folder
-        self.out_name = out_name
+    def __init__(self, out_f, out_name, platform, instance, options):
+        self.out_folder = out_f
+        self.connection_name = out_name
         self.platform = platform
         self.instance = instance
         self.options = options
 
     def create_sde_connection(self):
+        arcpy.AddMessage("SdeConnection.create_sde_connection() method called")
         # delete the sde file if it exists
-        loc = os.path.join(self.out_folder, self.out_name)
+        loc = os.path.join(self.out_folder, self.connection_name)
         if os.path.exists(loc):
             os.remove(loc)
 
-        sd = arcpy.CreateDatabaseConnection_management(self.out_folder, self.out_name, self.platform, self.instance,
+        sd = arcpy.CreateDatabaseConnection_management(self.out_folder, self.connection_name, self.platform, self.instance,
                                                        **self.options)
         # input path to the dev sde database connection
         target_sde = sd.getOutput(0)
@@ -127,19 +133,23 @@ class SdeConnector:
 
 
 class VersionManager:
-    def __init__(self, opt, out_folder, uid, platform, instance, target_sde, new_name, parent_version):
+    def __init__(self, opt, connection_folder, target_sde, new_version, new_connection, platform, instance):
+
         self.opt = opt
-        self.instance = instance
-        self.platform = platform
-        self.out_folder = out_folder
+        self.connection_folder = connection_folder
         self.target_sde = target_sde
-        self.version_name = "{}.{}".format(uid.upper(), new_name)
-        self.new_name = new_name
+        parent_version = opt["version"]
+        self.version_name = u"{}.{}".format(parent_version.split(".")[0].upper(), new_version)
+        self.new_version = new_version
+        self.new_connection = new_connection
         self.version_sde = ""
         self.parent_version = parent_version
+        self.platform = platform
+        self.instance = instance
         pass
 
     def clean_previous(self):
+        arcpy.AddMessage("VersionManager.clean_previous() method called")
         # remove previous version if it exists
         versions = []
         try:
@@ -167,6 +177,7 @@ class VersionManager:
             return True
 
     def connect_version(self):
+        arcpy.AddMessage("VersionManager.connect_version() method called")
         # create version to edit
         versions = da.ListVersions(self.target_sde)
         if len(versions):
@@ -175,7 +186,7 @@ class VersionManager:
                 raise VersionException("Version already exists, must remove before proceeding")
             else:
                 try:
-                    arcpy.CreateVersion_management(self.target_sde, self.parent_version, self.new_name,
+                    arcpy.CreateVersion_management(self.target_sde, self.parent_version, self.new_version,
                                                    access_permission="PUBLIC")
                 except Exception as e:
                     raise VersionException(e.message)
@@ -186,7 +197,8 @@ class VersionManager:
             v_opt["version"] = self.version_name
 
             # create SdeConnector object for the version
-            version_connection = SdeConnector(self.out_folder, self.new_name, self.platform, self.instance, v_opt)
+            # out_folder, out_name, platform, instance, options
+            version_connection = SdeConnector(self.connection_folder, self.new_connection, self.platform, self.instance, v_opt)
             self.version_sde = version_connection.create_sde_connection()
             return self.version_sde
 
@@ -194,14 +206,15 @@ class VersionManager:
             raise VersionException()
 
     def rec_post(self):
+        arcpy.AddMessage("VersionManager.rec_post() method called")
         try:
             # Block additional connections during rec/post
             env.workspace = self.version_sde
-
+            logfile = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs\\NoiseMit_logfile.txt")
             arcpy.ReconcileVersions_management(self.version_sde, "ALL_VERSIONS", u"{}".format(self.parent_version),
                                                u"{}".format(self.version_name), "NO_LOCK_ACQUIRED",
                                                "ABORT_CONFLICTS", "BY_OBJECT", "FAVOR_TARGET_VERSION",
-                                               "POST", "DELETE_VERSION", "C:\\Temp\NoiseMit_logfile.txt")
+                                               "POST", "DELETE_VERSION", logfile)
             os.remove(self.version_sde)
             return True
         except Exception as e:
@@ -221,6 +234,7 @@ class GDBTableUpdater:
         pass
 
     def count_pid(self):
+        arcpy.AddMessage("GDBTableUpdater.count_pid() method called")
         parcel_ids = []
 
         for _row in self.read_rows:
@@ -234,16 +248,23 @@ class GDBTableUpdater:
         return self.items
 
     def insert_rows(self):
+        arcpy.AddMessage("GDBTableUpdater.insert_rows() method called")
         try:
             self.editor.startOperation()
 
             insert = da.InsertCursor(self.write_table, self.match_fields)
             i = 0
+            pre_cnt = int(arcpy.GetCount_management(self.write_table).getOutput(0))
             for _row in self.read_rows:
-                insert.insertRow(_row)
+                try:
+                    insert.insertRow(_row)
+                except Exception as e:
+                    print e.message
                 i += 1
             del insert
-
+            post_cnt = int(arcpy.GetCount_management(self.write_table).getOutput(0))
+            if pre_cnt >= post_cnt:
+                arcpy.AddWarning("Rows were not added to the GDB Table.  PreCount = {} and PostCount = {}".format(pre_cnt, post_cnt))
             self.editor.stopOperation()
             return i
 
@@ -251,6 +272,7 @@ class GDBTableUpdater:
             print h.message
 
     def delete_rows(self, parcel_id):
+        arcpy.AddMessage("GDBTableUpdater.delete_rows() method called")
         self.editor.startOperation()
         i = 0
         with da.UpdateCursor(self.write_table, self.match_fields, "ParcelID='{}'".format(parcel_id)) as _cursor:
@@ -264,6 +286,7 @@ class GDBTableUpdater:
         return i
 
     def update_table(self, parcel_id):
+        arcpy.AddMessage("GDBTableUpdater.update_table() method called")
         try:
             # use the update cursor to remove the rem_rows
             deleted, added = 0, 0
@@ -277,7 +300,7 @@ class GDBTableUpdater:
             arcpy.AddError(e.message)
 
     def perform_update(self):
-
+        arcpy.AddMessage("GDBTableUpdater.perform_update() method called")
         try:
             # if the table is empty add all read_rows
             if not int(arcpy.GetCount_management(self.write_table).getOutput(0)):
@@ -305,6 +328,7 @@ class BuildingsUpdater:
         self.folios = {}
 
     def get_folios(self):
+        arcpy.AddMessage("BuildingUpdater.get_folios() method called")
         with da.SearchCursor(self.buildings, self.bldg_folio) as _cursor:
             for _row in _cursor:
                 cleaned_row = clean_row(_row)
@@ -313,6 +337,7 @@ class BuildingsUpdater:
         return self.folios
 
     def update_buildings(self):
+        arcpy.AddMessage("BuildingUpdater.update_buildings() method called")
         # gather the building folio numbers as keys in a dict
         def concat_list(_input):
             """take the input multivalue list and output a string"""

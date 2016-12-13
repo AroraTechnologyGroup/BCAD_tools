@@ -16,26 +16,24 @@ class TestWeaverUpdater(TestCase):
         tool = PythonTool()
         parameters = tool.getParameterInfo()
         params = tool.process_parameters(parameters=parameters)
-        out_f = params["out_f"]
-        out_n = params["out_n"]
-        plat = params["plat"]
-        inst = params["inst"]
-        p_version = params["p_version"]
+        out_f = params["connection_folder"]
+        out_n = params["edit_connection_name"]
+        plat = params["platform"]
+        inst = params["instance"]
+
         edit_version_name = params["edit_version_name"]
         sql_table = params["sql_table"]
         gdb_table = params["gdb_table"]
-        opt = params["opt"]
-        uid = params["uid"]
         gdb_table_name = params["gdb_table_name"]
+        opt = params["opt"]
 
-        connector = Connector(out_folder=out_f, out_name=out_n, platform=plat, instance=inst, options=opt)
-        cls.sde_file = connector.create_sde_connection()
-        manager = Manager(opt=opt, out_folder=out_f, uid=uid, platform=plat, instance=inst, target_sde=cls.sde_file,
-                          new_name=edit_version_name, parent_version=p_version)
+        cls.sde_file = params["gis_gdb"]
+        manager = Manager(opt=opt, connection_folder=out_f, target_sde=cls.sde_file,
+                          new_version=edit_version_name, new_connection=out_n, platform=plat, instance=inst)
         manager.clean_previous()
         cls.version_sde_file = manager.connect_version()
 
-        result = Tool.compare_fields(sql_table=sql_table, existing_table=gdb_table)
+        result = Tool.compare_fields(sql_table=sql_table, gdb_table=gdb_table)
 
         cls.match_fields = result["match_fields"]
         cls.add_rows = result["add_rows"]
@@ -45,7 +43,7 @@ class TestWeaverUpdater(TestCase):
         cls.editor = da.Editor(cls.version_sde_file)
         cls.editor.startEditing()
 
-        cls.version_gdb_table = arcpy.ListTables("*{}".format(gdb_table_name))[0]
+        cls.version_gdb_table = arcpy.ListTables("*{}*".format(gdb_table_name))[0]
 
     def setUp(self):
         self.updater = Updater(match_fields=self.match_fields, write_table=self.version_gdb_table, read_rows=self.add_rows,
@@ -64,7 +62,7 @@ class TestWeaverUpdater(TestCase):
             self.assertEquals(0, result)
         else:
             # change this value to the number of rows you expect to the inserted during the test
-            self.assertEquals(44, result)
+            self.assertEquals(len(self.updater.read_rows), result)
 
     def test_delete_rows(self):
         result = self.updater.delete_rows('4781')
@@ -72,16 +70,16 @@ class TestWeaverUpdater(TestCase):
             self.assertFalse(result)
         else:
             # change this value to the number of rows expected to be deleted during the tests
-            self.assertEquals(3, result)
+            self.assertGreater(result, 0)
 
     def test_update_table(self):
         result = self.updater.update_table('4781')
         if len(self.updater.read_rows) == len(self.updater.remove_rows):
             self.assertEqual(result[0], result[1])
         elif len(self.updater.read_rows) < len(self.updater.remove_rows):
-            self.assertLess(result[0], result[1])
-        elif len(self.updater.read_rows) > len(self.updater.remove_rows):
             self.assertGreater(result[0], result[1])
+        elif len(self.updater.read_rows) > len(self.updater.remove_rows):
+            self.assertLess(result[0], result[1])
 
     def test_perform_update(self):
         result = self.updater.perform_update()
@@ -92,7 +90,7 @@ class TestWeaverUpdater(TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        for x in [cls.sde_file, cls.version_sde_file]:
+        for x in [cls.version_sde_file]:
             try:
                 os.remove(x)
             except:

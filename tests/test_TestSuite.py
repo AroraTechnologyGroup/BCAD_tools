@@ -8,10 +8,10 @@ from tests import test_versionManager
 
 functions_suite = test_functions.suite()
 
-suite1 = test_buildingsUpdater.suite()
-suite2 = test_gdbTableUpdater.suite()
-suite3 = test_sdeConnector.suite()
-suite4 = test_versionManager.suite()
+suite1 = test_sdeConnector.suite()
+suite2 = test_versionManager.suite()
+suite3 = test_gdbTableUpdater.suite()
+suite4 = test_buildingsUpdater.suite()
 
 
 all_suites = unittest.TestSuite([suite1, suite2, suite3, suite4])

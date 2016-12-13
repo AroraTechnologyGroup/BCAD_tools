@@ -12,7 +12,7 @@ class TestWeaverUpdate(TestCase):
 
     def test_updateParameters(self):
         params = self.tool.getParameterInfo()
-        self.assertEquals(16, len(params))
+        self.assertEquals(15, len(params))
 
     def test_execute(self):
         params = self.tool.getParameterInfo()

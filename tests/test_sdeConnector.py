@@ -16,13 +16,13 @@ class TestSdeConnector(TestCase):
 
     def setUp(self):
         params = self.params
-        out_f = params["out_f"]
-        out_n = params["out_n"]
-        plat = params["plat"]
-        inst = params["inst"]
+        out_f = params["connection_folder"]
+        out_n = params["edit_connection_name"]
+        plat = params["platform"]
+        inst = params["instance"]
         opt = params["opt"]
 
-        self.connector = SdeConnector(out_folder=out_f, out_name=out_n, platform=plat,
+        self.connector = SdeConnector(out_f=out_f, out_name=out_n, platform=plat,
                                       instance=inst, options=opt)
 
     def tearDown(self):
@@ -37,8 +37,9 @@ class TestSdeConnector(TestCase):
 
     def test_create_sde_connection(self):
         params = self.params
-        out_f = params["out_f"]
-        out_n = params["out_n"]
+        out_f = params["connection_folder"]
+        out_n = params["edit_connection_name"]
+
         sde_file = self.connector.create_sde_connection()
         self.assertEqual("{}\\{}".format(out_f, out_n), sde_file)
         os.remove(sde_file)

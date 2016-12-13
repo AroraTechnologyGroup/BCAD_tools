@@ -16,23 +16,19 @@ class TestBuildingsUpdater(TestCase):
         params = tool.process_parameters(parameters=parameters)
         cls.params = params
         buildings_name = params["buildings_name"]
-        out_f = params["out_f"]
-        out_n = params["out_n"]
-        plat = params["plat"]
-        inst = params["inst"]
+        out_f = params["connection_folder"]
+        out_n = params["edit_connection_name"]
+        plat = params["platform"]
+        inst = params["instance"]
         opt = params["opt"]
-        uid = params["uid"]
         edit_version_name = params["edit_version_name"]
-        p_version = params["p_version"]
 
         #  out_folder, out_name, platform, instance, options
-        connector = Connector(out_folder=out_f, out_name=out_n, platform=plat,
-                              instance=inst, options=opt)
-        cls.sde_file = connector.create_sde_connection()
+
+        cls.sde_file = params["gis_gdb"]
         # opt, out_folder, uid, platform, instance, target_sde, new_name, parent_version
-        cls.manager = Manager(opt=opt, out_folder=out_f, uid=uid, platform=plat, instance=inst,
-                              target_sde=cls.sde_file, new_name=edit_version_name,
-                              parent_version=p_version)
+        cls.manager = Manager(opt=opt, connection_folder=out_f, target_sde=cls.sde_file, new_version=edit_version_name,
+                              new_connection=out_n, platform=plat, instance=inst)
         cls.manager.clean_previous()
         cls.version_sde = cls.manager.connect_version()
         env.workspace = cls.version_sde
@@ -59,7 +55,7 @@ class TestBuildingsUpdater(TestCase):
         del cls.edit
         env.workspace = cls.sde_file
         cls.manager.clean_previous()
-        for x in [cls.version_sde, cls.sde_file]:
+        for x in [cls.version_sde]:
             try:
                 os.remove(x)
             except:

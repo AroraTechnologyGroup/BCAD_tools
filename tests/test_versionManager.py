@@ -12,28 +12,27 @@ class TestVersionManager(TestCase):
         tool = PythonTool()
         parameters = tool.getParameterInfo()
         params = tool.process_parameters(parameters=parameters)
-        out_f = params["out_f"]
-        out_n = params["out_n"]
-        plat = params["plat"]
-        inst = params["inst"]
-        opt = params["opt"]
-
+        cls.out_f = params["connection_folder"]
+        cls.out_n = params["edit_connection_name"]
+        cls.plat = params["platform"]
+        cls.inst = params["instance"]
+        cls.opt = params["opt"]
+        cls.sde_file = params["gis_gdb"]
+        cls.edit_version_name = params["edit_version_name"]
         cls.params = params
-        connector = Connector(out_f, out_n, plat, inst, opt)
-        cls.sde_file = connector.create_sde_connection()
 
     def setUp(self):
         params = self.params
-        out_f = params["out_f"]
-        plat = params["plat"]
-        inst = params["inst"]
-        p_version = params["p_version"]
-        edit_version_name = params["edit_version_name"]
-        opt = params["opt"]
-        uid = params["uid"]
-        self.manager = Manager(opt=opt, out_folder=out_f, uid=uid, platform=plat, instance=inst,
-                               target_sde=self.sde_file, new_name=edit_version_name,
-                               parent_version=p_version)
+        out_f = self.out_f
+        out_n = self.out_n
+        plat = self.plat
+        inst = self.inst
+        edit_version_name = self.edit_version_name
+        opt = self.opt
+
+        self.manager = Manager(opt=opt, connection_folder=out_f, target_sde=self.sde_file,
+                               new_version=edit_version_name, new_connection=out_n,
+                               platform=plat, instance=inst)
 
     def tearDown(self):
         self.manager = None
@@ -41,8 +40,8 @@ class TestVersionManager(TestCase):
     @classmethod
     def tearDownClass(cls):
         try:
-            os.remove(cls.sde_file)
             cls.params = None
+            os.remove(cls.version_sde)
         except:
             pass
 
@@ -51,8 +50,8 @@ class TestVersionManager(TestCase):
         self.assertTrue(result)
 
     def test_connect_version(self):
-        out_f = self.params["out_f"]
-        edit_version_name = self.params["edit_version_name"]
+        out_f = self.out_f
+        edit_version_name = self.edit_version_name
         self.version_sde = self.manager.connect_version()
         self.assertEqual("{}\\{}.sde".format(out_f, edit_version_name), self.version_sde)
         os.remove(self.version_sde)
