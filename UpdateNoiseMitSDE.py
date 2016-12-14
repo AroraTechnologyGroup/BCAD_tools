@@ -188,19 +188,27 @@ class VersionManager:
                 try:
                     arcpy.CreateVersion_management(self.target_sde, self.parent_version, self.new_version,
                                                    access_permission="PUBLIC")
+                    # create an sde connection file to the new version
+                    v_opt = self.opt.copy()
+
+                    versions = da.ListVersions(self.target_sde)
+                    edit_version = []
+                    for x in versions:
+                        if self.new_version in x.name:
+                            edit_version.append(x.name)
+
+                    v_opt["version"] = edit_version[0]
+                    arcpy.AddMessage("Edit Version selected :: {}".format(edit_version[0]))
+
+                    # create SdeConnector object for the version
+                    # out_folder, out_name, platform, instance, options
+                    version_connection = SdeConnector(self.connection_folder, self.new_connection, self.platform,
+                                                      self.instance, v_opt)
+                    self.version_sde = version_connection.create_sde_connection()
+                    return self.version_sde
+
                 except Exception as e:
                     raise VersionException(e.message)
-
-
-            # create an sde connection file to the new version
-            v_opt = self.opt.copy()
-            v_opt["version"] = self.version_name
-
-            # create SdeConnector object for the version
-            # out_folder, out_name, platform, instance, options
-            version_connection = SdeConnector(self.connection_folder, self.new_connection, self.platform, self.instance, v_opt)
-            self.version_sde = version_connection.create_sde_connection()
-            return self.version_sde
 
         else:
             raise VersionException()
