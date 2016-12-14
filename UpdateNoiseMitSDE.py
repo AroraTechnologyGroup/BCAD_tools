@@ -155,7 +155,7 @@ class VersionManager:
         try:
             if arcpy.Exists(self.target_sde):
                 env.workspace = self.target_sde
-                versions = da.ListVersions(self.target_sde)
+                versions.extend(da.ListVersions(self.target_sde))
         except EnvironmentError as e:
             raise VersionException(e.message)
 
