@@ -1,9 +1,9 @@
-from BCAD_NoiseMit_Tools import WeaverGDBUpdate as PythonTool
-from UpdateNoiseMitSDE import SdeConnector
+import os
 import unittest
 from unittest import TestCase
-import gc
-import os
+
+from BCAD_NoiseMit_Tools import WeaverGDBUpdate as PythonTool
+from utils.UpdateNoiseMitSDE import SdeConnector
 
 
 class TestSdeConnector(TestCase):

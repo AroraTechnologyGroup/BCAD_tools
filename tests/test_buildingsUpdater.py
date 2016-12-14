@@ -1,11 +1,13 @@
+import os
 import unittest
 from unittest import TestCase
-from BCAD_NoiseMit_Tools import WeaverGDBUpdate as PythonTool
-from UpdateNoiseMitSDE import BuildingsUpdater as Updater
-from UpdateNoiseMitSDE import SdeConnector as Connector
-from UpdateNoiseMitSDE import VersionManager as Manager
+
 from arcpy import da, env
-import os
+
+from BCAD_NoiseMit_Tools import WeaverGDBUpdate as PythonTool
+from utils import UpdateNoiseMitSDE as Tool
+from utils.UpdateNoiseMitSDE import BuildingsUpdater as Updater
+from utils.UpdateNoiseMitSDE import VersionManager as Manager
 
 
 class TestBuildingsUpdater(TestCase):
@@ -39,11 +41,14 @@ class TestBuildingsUpdater(TestCase):
     def setUp(self):
 
         GDB_Table = self.params["gdb_table"]
+        SQL_Table = self.params["sql_table"]
         weav_atts = self.params["weaver_attributes"]
         bldg_atts = self.params["building_attributes"]
         bldgs = self.versioned_buildings
-        # bldgs, rel_table, bldg_atts, weav_atts, version_sde, editor
-        self.updater = Updater(bldgs=bldgs, rel_table=GDB_Table, bldg_atts=bldg_atts,
+        result = Tool.compare_tables(sql_table=SQL_Table, gdb_table=GDB_Table)
+        folioIds = result["folioIds"]
+        # folioIds, bldgs, rel_table, bldg_atts, weav_atts, version_sde, editor
+        self.updater = Updater(folioIds=folioIds, bldgs=bldgs, rel_table=GDB_Table, bldg_atts=bldg_atts,
                                weav_atts=weav_atts, version_sde=self.version_sde, editor=self.edit)
 
     def tearDown(self):
@@ -61,8 +66,8 @@ class TestBuildingsUpdater(TestCase):
             except:
                 pass
 
-    def test_get_folios(self):
-        folios = self.updater.get_folios()
+    def test_build_folio_dict(self):
+        folios = self.updater.build_folio_dict()
         self.assertTrue(folios)
         self.assertGreaterEqual(len(folios.keys()), 0)
 

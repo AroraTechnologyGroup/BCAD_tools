@@ -1,11 +1,13 @@
-import UpdateNoiseMitSDE as Tool
+import os
 import unittest
 from unittest import TestCase
-from BCAD_NoiseMit_Tools import WeaverGDBUpdate as PythonTool
+
 import arcpy
-import UpdateNoiseMitSDE as Code
-from UpdateNoiseMitSDE import SdeConnector as Connector
-import os
+
+import utils.UpdateNoiseMitSDE as Code
+from BCAD_NoiseMit_Tools import WeaverGDBUpdate as PythonTool
+from utils import UpdateNoiseMitSDE as Tool
+from utils.UpdateNoiseMitSDE import SdeConnector as Connector
 
 
 class TestClean_row(TestCase):
@@ -16,7 +18,7 @@ class TestClean_row(TestCase):
         self.assertListEqual(["", None, "apple", "tree"], row)
 
 
-class TestCompare_fields(TestCase):
+class TestCompare_tables(TestCase):
     def setUp(self):
         """out_folder, out_name, platform, instance, options"""
         tool = PythonTool()
@@ -39,18 +41,18 @@ class TestCompare_fields(TestCase):
             pass
         self.params = None
 
-    def test_compare_fields(self):
+    def test_compare_tables(self):
         params = self.params
         SQL_Table = params["sql_table"]
         GDB_Table = params["gdb_table"]
         for x in [SQL_Table, GDB_Table]:
             if not arcpy.Exists(x):
                 self.fail()
-        compare = Code.compare_fields(sql_table=SQL_Table, gdb_table=GDB_Table)
+        compare = Code.compare_tables(sql_table=SQL_Table, gdb_table=GDB_Table)
         keys = compare.keys()
         keys.sort()
-        self.assertListEqual(["add_rows", "compare_result",
-                              "exist_rows", "match_fields"], keys)
+        self.assertListEqual(["add_rows", "compare_result", "exist_rows", "folioIds",
+                             "match_fields"], keys)
 
         if compare["compare_result"] == 0:
             for x in [compare["add_rows"], compare["exist_rows"]]:
@@ -61,11 +63,12 @@ class TestCompare_fields(TestCase):
             rows = len(compare["add_rows"]) + len(compare["exist_rows"])
             print "length should be greater than 0 :: {}".format(rows)
             self.assertGreaterEqual(rows, 1)
+            self.assertGreaterEqual(len(compare["folioIds"]), 1)
 
 
 def suite():
     x = unittest.TestLoader().loadTestsFromTestCase(TestClean_row)
-    y = unittest.TestLoader().loadTestsFromTestCase(TestCompare_fields)
+    y = unittest.TestLoader().loadTestsFromTestCase(TestCompare_tables)
     return unittest.TestSuite([x, y])
 
 

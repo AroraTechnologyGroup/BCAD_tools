@@ -10,9 +10,22 @@ import datetime
 env.overwriteOutput = 1
 
 
-def compare_fields(sql_table, gdb_table):
-    """Compare the fields between the tables to catch a schema change"""
-    arcpy.AddMessage("compare_fields function called")
+def compare_tables(sql_table, gdb_table):
+    """Compare the fields between the tables to catch a schema change.
+    List all of the rows in the source table, check for the existence of an existing row
+    in the list of source rows.
+
+    The return value is a dictionary including the folio Ids for rows being updated,
+    as well as the rows themselves.
+
+    If no changes need to be made, the 'compare_result' value in the result dict will be zero."""
+
+    # verify that the necessary tables exist
+    for x in [sql_table, gdb_table]:
+        if not arcpy.Exists(x):
+            arcpy.AddError("the target table and the gdb table are not found")
+            raise Exception()
+
     source_fields = {}
     read_fields = arcpy.ListFields(sql_table)
     for x in read_fields:
@@ -31,6 +44,10 @@ def compare_fields(sql_table, gdb_table):
     if "OBJECTID" in _match_fields:
         _match_fields.remove("OBJECTID")
 
+    folio_index = []
+    if "FolioNumber" in _match_fields:
+        folio_index.append(_match_fields.index("FolioNumber"))
+
     if len(new_fields):
         raise Exception("A schema change exists in the updated weaver table :: {}".format(new_fields))
 
@@ -38,12 +55,6 @@ def compare_fields(sql_table, gdb_table):
         arcpy.AddWarning("The updated weaver table is missing fields :: {}\
                         A Schema change may be needed to import the table,\
                         or else the column will be empty".format(missing_fields))
-
-    # verify that the necessary tables exist
-    for x in [sql_table, gdb_table]:
-        if not arcpy.Exists(x):
-            arcpy.AddError("the target table and the gdb table are not found")
-            raise Exception()
 
     # Add all of the rows from the weaver sql table to a list
     add_rows = []
@@ -53,7 +64,7 @@ def compare_fields(sql_table, gdb_table):
             add_rows.append(tuple_row)
     del cursor
 
-    exist_rows = []
+    rem_rows = []
     with da.SearchCursor(gdb_table, _match_fields) as cursor:
         for row in cursor:
             tuple_row = tuple(row)
@@ -63,17 +74,30 @@ def compare_fields(sql_table, gdb_table):
                 pass
             # if the row is not in the add_rows, then add it to the exist_rows to remove
             else:
-                exist_rows.append(row)
+                rem_rows.append(row)
     del cursor
 
     compare_result = 0
-    if len(add_rows) or len(exist_rows):
+    folioIds = []
+    if len(add_rows) or len(rem_rows):
         compare_result += 1
-
+        for x in add_rows:
+            try:
+                folioIds.append(x[folio_index[0]])
+            except IndexError:
+                pass
+        for x in rem_rows:
+            try:
+                folioIds.append(x[folio_index[0]])
+            except IndexError:
+                pass
+    folioIds = list(set(folioIds))
+    arcpy.AddMessage("These folioIds will be updated in the buildings feature class :: {}".format(folioIds))
     return {"match_fields": _match_fields,
+            "folioIds": folioIds,
             "compare_result": compare_result,
             "add_rows": add_rows,
-            "exist_rows": exist_rows}
+            "exist_rows": rem_rows}
 
 
 def print_connection_info(workspace):
@@ -110,7 +134,7 @@ class SdeConnector:
         self.options = options
 
     def create_sde_connection(self):
-        arcpy.AddMessage("SdeConnection.create_sde_connection() method called")
+        arcpy.AddMessage("SdeConnection.create_sde_connection()")
         # delete the sde file if it exists
         loc = os.path.join(self.out_folder, self.connection_name)
         if os.path.exists(loc):
@@ -149,7 +173,7 @@ class VersionManager:
         pass
 
     def clean_previous(self):
-        arcpy.AddMessage("VersionManager.clean_previous() method called")
+        arcpy.AddMessage("VersionManager.clean_previous()")
         # remove previous version if it exists
         versions = []
         try:
@@ -177,7 +201,7 @@ class VersionManager:
             return True
 
     def connect_version(self):
-        arcpy.AddMessage("VersionManager.connect_version() method called")
+        arcpy.AddMessage("VersionManager.connect_version()")
         # create version to edit
         versions = da.ListVersions(self.target_sde)
         if len(versions):
@@ -214,7 +238,7 @@ class VersionManager:
             raise VersionException()
 
     def rec_post(self):
-        arcpy.AddMessage("VersionManager.rec_post() method called")
+        arcpy.AddMessage("VersionManager.rec_post()")
         try:
             # Block additional connections during rec/post
             env.workspace = self.version_sde
@@ -231,75 +255,71 @@ class VersionManager:
 
 class GDBTableUpdater:
     """match_fields, w_table, add_rows, rem_rows, version_sde_file, editor"""
-    def __init__(self, match_fields, write_table, read_rows, remove_rows, version_sde, editor):
+    def __init__(self, weaver_attributes, folioIds, match_fields, write_table, read_rows, remove_rows, version_sde, editor):
+        self.folio_field = weaver_attributes["Folio Number"]
+        self.folioIds = folioIds
         self.match_fields = match_fields
         self.write_table = write_table
         self.read_rows = read_rows
         self.remove_rows = remove_rows
         self.version_sde = version_sde
-        self.items = {}
         self.editor = editor
         pass
 
-    def count_pid(self):
-        arcpy.AddMessage("GDBTableUpdater.count_pid() method called")
-        parcel_ids = []
-
-        for _row in self.read_rows:
-            parcel_ids.append(_row[0])
-
-        _cnt = Counter()
-        for _pid in parcel_ids:
-            _cnt[_pid] += 1
-
-        self.items = dict(_cnt)
-        return self.items
-
     def insert_rows(self):
-        arcpy.AddMessage("GDBTableUpdater.insert_rows() method called")
+        arcpy.AddMessage("GDBTableUpdater.insert_rows()")
         try:
             self.editor.startOperation()
-
             insert = da.InsertCursor(self.write_table, self.match_fields)
             i = 0
             pre_cnt = int(arcpy.GetCount_management(self.write_table).getOutput(0))
             for _row in self.read_rows:
                 try:
                     insert.insertRow(_row)
+                    i += 1
+                    arcpy.AddMessage("{} was added as a row.".format(_row))
                 except Exception as e:
                     print e.message
-                i += 1
+
             del insert
-            post_cnt = int(arcpy.GetCount_management(self.write_table).getOutput(0))
-            if pre_cnt >= post_cnt:
-                arcpy.AddWarning("Rows were not added to the GDB Table.  PreCount = {} and PostCount = {}".format(pre_cnt, post_cnt))
+            if not i:
+                arcpy.AddWarning("Rows were not added to the GDB Table")
             self.editor.stopOperation()
             return i
 
         except Exception as h:
             print h.message
+            self.editor.stopOperation()
 
-    def delete_rows(self, parcel_id):
-        arcpy.AddMessage("GDBTableUpdater.delete_rows() method called")
-        self.editor.startOperation()
-        i = 0
-        with da.UpdateCursor(self.write_table, self.match_fields, "ParcelID='{}'".format(parcel_id)) as _cursor:
-            for line in _cursor:
-                # delete all rows that are identical to an item in the input list
-                if line in self.remove_rows:
-                    _cursor.deleteRow(line)
-                    i += 1
-        del _cursor
-        self.editor.stopOperation()
-        return i
+    def delete_rows(self, folio_ids):
+        arcpy.AddMessage("GDBTableUpdater.delete_rows()")
+        try:
+            self.editor.startOperation()
+            i = 0
+            with da.UpdateCursor(self.write_table, self.match_fields, "{} in ('{})'".format(
+                    self.folio_field, "','".join(folio_ids))) as _cursor:
+                for line in _cursor:
+                    # delete all rows that are identical to an item in the input list
+                    if tuple(line) in self.remove_rows:
+                        _cursor.deleteRow()
+                        arcpy.AddMessage("The row '{}' was removed".format(line))
+                        i += 1
+                    else:
+                        arcpy.AddWarning("{} does not exist in {}".format(line, self.remove_rows))
+            del _cursor
+            self.editor.stopOperation()
+            return i
+        except Exception as e:
+            print e.message
+            self.editor.stopOperation()
 
-    def update_table(self, parcel_id):
-        arcpy.AddMessage("GDBTableUpdater.update_table() method called")
+    def update_table(self, folio_ids):
+        arcpy.AddMessage("GDBTableUpdater.update_table()")
         try:
             # use the update cursor to remove the rem_rows
             deleted, added = 0, 0
             if len(self.remove_rows):
-                deleted = self.delete_rows(parcel_id)
+                deleted = self.delete_rows(folio_ids)
             if len(self.read_rows):
                 added = self.insert_rows()
             return [deleted, added]
@@ -308,15 +328,14 @@ class GDBTableUpdater:
             arcpy.AddError(e.message)
 
     def perform_update(self):
-        arcpy.AddMessage("GDBTableUpdater.perform_update() method called")
+        arcpy.AddMessage("GDBTableUpdater.perform_update()")
         try:
             # if the table is empty add all read_rows
             if not int(arcpy.GetCount_management(self.write_table).getOutput(0)):
                 self.insert_rows()
             else:
-                # work with one pid at a time
-                for pid in self.items.keys():
-                    self.update_table(pid)
+                # use the folioIds to filter before updating
+                self.update_table(self.folioIds)
             return True
         except Exception as e:
             arcpy.AddError(e.message)
@@ -324,7 +343,8 @@ class GDBTableUpdater:
 
 class BuildingsUpdater:
     """buildings, w_table, building_attributes, weaver_attributes,version_sde_file, editor"""
-    def __init__(self, bldgs, rel_table, bldg_atts, weav_atts, version_sde, editor):
+    def __init__(self, folioIds, bldgs, rel_table, bldg_atts, weav_atts, version_sde, editor):
+        self.folioIds = folioIds
         self.buildings = bldgs
         self.rel_table = rel_table
         self.bldg_folio = bldg_atts["Folio Number"]
@@ -335,59 +355,63 @@ class BuildingsUpdater:
         self.editor = editor
         self.folios = {}
 
-    def get_folios(self):
-        arcpy.AddMessage("BuildingUpdater.get_folios() method called")
-        with da.SearchCursor(self.buildings, self.bldg_folio) as _cursor:
-            for _row in _cursor:
-                cleaned_row = clean_row(_row)
-                self.folios[cleaned_row[0]] = {"Phase Names": [], "Project Names": []}
-        del _cursor
+    def build_folio_dict(self):
+        for x in self.folioIds:
+            self.folios[x] = {"Phase Names": [], "Project Names": []}
         return self.folios
 
     def update_buildings(self):
-        arcpy.AddMessage("BuildingUpdater.update_buildings() method called")
+        arcpy.AddMessage("BuildingUpdater.update_buildings()")
         # gather the building folio numbers as keys in a dict
+
         def concat_list(_input):
             """take the input multivalue list and output a string"""
             _ph = _input
             if type(_ph) == list:
-                cnt = Counter()
-                for w in _ph:
-                    cnt[w] += 1
-
-                _ph = ""
-                if len(cnt.items()):
-                    l = []
-                    d = dict(cnt)
-
-                    for k, v in d.iteritems():
-                        l.append("{}:{}".format(k, v))
-                    if len(l) > 1:
-                        _ph = ", ".join(l)
-                    else:
-                        _ph = str(l[0])
-
+                _ph = ", ".join(_ph)
             return _ph
 
-        _folios = self.get_folios()
+        _folios = self.build_folio_dict()
         fields = [self.weav_folio, self.weav_update_fields[0], self.weav_update_fields[1]]
-        with da.SearchCursor(self.rel_table, fields) as _cursor:
-            for _row in _cursor:
-                cleaned_row = clean_row(_row)
-                if cleaned_row[0] in _folios:
-                    _folios[cleaned_row[0]]["Phase Names"].append(cleaned_row[1])
-                    _folios[cleaned_row[0]]["Project Names"].append(cleaned_row[2])
+        # read the rows from the related table with an SQL filter for folioIds;
+        # add the phase name and project name to the values for the
+        # dictionary index of the folio number
+        keys = _folios.keys()
+        if len(keys) == 1:
+            sql_expression = "{} = '{}'".format(fields[0], keys[0])
+        elif len(keys) > 1:
+            sql_expression = "{} in ('{}')".format(fields[0], "','".join(keys))
 
-        del _cursor
+        try:
+            with da.SearchCursor(self.rel_table, fields, sql_expression) as _cursor:
+                for _row in _cursor:
+                    cleaned_row = clean_row(_row)
+                    if cleaned_row[0] in _folios:
+                        _folios[cleaned_row[0]]["Phase Names"].append(cleaned_row[1])
+                        _folios[cleaned_row[0]]["Project Names"].append(cleaned_row[2])
+
+            del _cursor
+
+        except RuntimeError as e:
+            print e.message
 
         self.editor.startOperation()
 
         fields = [self.bldg_folio, self.bldg_update_fields[0], self.bldg_update_fields[1]]
-        with da.UpdateCursor(self.buildings, fields) as _cursor:
+        if len(keys) == 1:
+            sql_expression = "{} = '{}'".format(fields[0], keys[0])
+        elif len(keys) > 1:
+            sql_expression = "{} in ('{}')".format(fields[0], "','".join(keys))
+        # iterate through the buildings with an SQL filter for the folioIds being updated;
+        # for each folio number create the new string value of the concatenated
+        # phase names and project names
+        arcpy.AddMessage("The buildings are now being updated")
+        i = 0
+        with da.UpdateCursor(self.buildings, fields, sql_expression) as _cursor:
             for _row in _cursor:
                 cleaned_row = clean_row(_row)
                 folio_id = cleaned_row[0]
-                if folio_id in _folios:
+                if folio_id in keys:
                     ph = _folios[folio_id]["Phase Names"]
                     phase_name = concat_list(ph)
 
@@ -397,12 +421,14 @@ class BuildingsUpdater:
                     new_row = [folio_id, phase_name, project_name]
                     if _row != new_row:
                         _cursor.updateRow(new_row)
+                        i += 1
                     else:
                         # the row has not changed
                         pass
                 else:
                     print "{} is not in the weaver table".format(folio_id)
         del _cursor
+        arcpy.AddMessage("{} buildings were updated with values".format(i))
 
         self.editor.stopOperation()
         return True

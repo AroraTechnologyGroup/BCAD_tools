@@ -1,9 +1,9 @@
 import os
 import unittest
 from unittest import TestCase
+
 from BCAD_NoiseMit_Tools import WeaverGDBUpdate as PythonTool
-from UpdateNoiseMitSDE import SdeConnector as Connector
-from UpdateNoiseMitSDE import VersionManager as Manager
+from utils.UpdateNoiseMitSDE import VersionManager as Manager
 
 
 class TestVersionManager(TestCase):

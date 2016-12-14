@@ -1,13 +1,16 @@
-import arcpy
-import sys
 import os
+import sys
+import traceback
+
+import arcpy
 from arcpy import da
 from arcpy import env
-import traceback
-import UpdateNoiseMitSDE as Tool
-from UpdateNoiseMitSDE import VersionManager, GDBTableUpdater, BuildingsUpdater
+
+from utils import UpdateNoiseMitSDE
+from utils.UpdateNoiseMitSDE import VersionManager, GDBTableUpdater, BuildingsUpdater
+
 env.overwriteOutput = 1
-reload(Tool)
+reload(UpdateNoiseMitSDE)
 
 
 class Toolbox(object):
@@ -109,7 +112,7 @@ class WeaverGDBUpdate(object):
             parameterType='Required',
             direction='Input'
         )
-        param07.value = '{}\\App_Tables.dbo.WEAVERDATAIMPORT'.format(param01.value)
+        param07.value = '{}\\App_Tables.dbo.WEAVERDATAIMPORT_SUBSET'.format(param01.value)
 
         # GDB table with holds the weaver data from the sql table
         param08 = arcpy.Parameter(
@@ -211,7 +214,7 @@ class WeaverGDBUpdate(object):
         return
 
     def process_parameters(self, parameters):
-        arcpy.AddMessage("WeaverGDBUpdate.process_parameters() method called")
+        arcpy.AddMessage("WeaverGDBUpdate.process_parameters()")
         # These are the parameters defined by the user
         gis_gdb, table_db, os_auth, uid, pwd, p_version, bldgs, \
         sql_table, gdb_table, bldg_projectName, bldg_phaseName, \
@@ -287,7 +290,7 @@ class WeaverGDBUpdate(object):
         return final_parameters
 
     def get_versioned_fc(self, workspace, name):
-        arcpy.AddMessage("WeaverGDBUpdate.get_versioned_fc() method called")
+        arcpy.AddMessage("WeaverGDBUpdate.get_versioned_fc()")
         env.workspace = workspace
         noisemit = arcpy.ListDatasets("*Noise*")[0]
         dataset_path = os.path.join(env.workspace, noisemit)
@@ -302,7 +305,7 @@ class WeaverGDBUpdate(object):
 
     def execute(self, parameters, messages):
         """The method calls classes defined in external files."""
-        arcpy.AddMessage("WeaverGDBUpdate.execute() method called")
+        arcpy.AddMessage("WeaverGDBUpdate.execute()")
         params = self.process_parameters(parameters=parameters)
         connection_folder = params["connection_folder"]
         platform = params["platform"]
@@ -323,22 +326,21 @@ class WeaverGDBUpdate(object):
         try:
 
             # These values need to be removed when the user parameters are created
-            result = Tool.compare_fields(sql_table=sql_table, gdb_table=gdb_table)
+            result = UpdateNoiseMitSDE.compare_tables(sql_table=sql_table, gdb_table=gdb_table)
 
             compare_result = result["compare_result"]
+            folioIds = result["folioIds"]
             match_fields = result["match_fields"]
             add_rows = result["add_rows"]
             exist_rows = result["exist_rows"]
 
-            arcpy.AddMessage({"compare result": compare_result,
-                              "add_rows": len(add_rows),
-                              "existing_rows": len(exist_rows)})
-
             # compare result if True means that changes need to be made to the GDB Table and thus the Buildings
             if compare_result:
+                arcpy.AddMessage({"# rows to add": len(add_rows),
+                                  "# rows to remove": len(exist_rows)})
                 # create VersionManager class object to create new version, connect to it,
                 # and create an sde connection file, set as current workspace
-                # out_folder, platform, instance, target_sde, version_name, new_name, parent_version
+
                 version_manager = VersionManager(opt, connection_folder, sde_file, edit_version_name, edit_connection_name, platform, instance)
                 version_manager.clean_previous()
                 version_sde_file = version_manager.connect_version()
@@ -354,11 +356,8 @@ class WeaverGDBUpdate(object):
                 gdb_table = arcpy.ListTables("*{}*".format(gdb_table_name))[0]
                 if arcpy.Exists(gdb_table):
                     # create GDBTableUpdater class object
-                    weaver_updater = GDBTableUpdater(match_fields, gdb_table, add_rows, exist_rows,
+                    weaver_updater = GDBTableUpdater(weaver_attributes, folioIds, match_fields, gdb_table, add_rows, exist_rows,
                                                      version_sde_file, editor)
-
-                    # set the number of rows per parcel ID as class property
-                    pid_dict = weaver_updater.count_pid()
 
                     # should return True when editing is complete
                     table_updated = weaver_updater.perform_update()
@@ -367,7 +366,7 @@ class WeaverGDBUpdate(object):
                     version_buildings = self.get_versioned_fc(version_sde_file, buildings_name)
                     if arcpy.Exists(version_buildings):
                         try:
-                            building_updater = BuildingsUpdater(version_buildings, gdb_table, building_attributes,
+                            building_updater = BuildingsUpdater(folioIds, version_buildings, gdb_table, building_attributes,
                                                                 weaver_attributes, version_sde_file, editor)
 
                             # should return True when editing it complete
@@ -403,17 +402,21 @@ class WeaverGDBUpdate(object):
                 version_manager.clean_previous()
                 del version_manager
 
+                # Verify that the edits where posted
+                # TODO- determine failproof methods for isolating the changed features and viewing the change
+                env.workspace = sde_file
+                fields = [x for x in building_attributes.itervalues()]
+                cursor = da.SearchCursor(bldgs, fields,
+                                         "{} in ('{}')".format(building_attributes["Folio Number"], ','.join(folioIds)))
+                try:
+                    values = cursor.next()
+                    arcpy.AddMessage("This is an edited row in the buildings table :: {}".format(values))
+                except StopIteration:
+                    arcpy.AddMessage("No building found with folioID {}".format(folioIds[0]))
+                del cursor
+
             else:
                 arcpy.AddMessage("The files are identical, no edits needed")
-
-            # Verify that the edits where posted
-            # TODO- determine failproof methods for isolating the changed features and viewing the change
-            env.workspace = sde_file
-            fields = [x for x in building_attributes.itervalues()]
-            cursor = da.SearchCursor(bldgs, fields)
-            values = cursor.next()
-            arcpy.AddMessage("This is the first row in the buildings table :: {}".format(values))
-            del cursor
 
             return True
 
