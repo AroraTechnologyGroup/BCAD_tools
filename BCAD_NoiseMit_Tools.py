@@ -11,6 +11,8 @@ from utils.UpdateNoiseMitSDE import VersionManager, GDBTableUpdater, BuildingsUp
 
 env.overwriteOutput = 1
 
+home_dir = os.path.dirname(os.path.abspath(__file__))
+
 
 class Toolbox(object):
     def __init__(self):
@@ -42,7 +44,7 @@ class WeaverGDBUpdate(object):
             direction='Input',
         )
         param0.filter.list = ["Remote Database"]
-        param0.value = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'DBConnections\\GISAIR.sde')
+        param0.value = os.path.join(home_dir, 'DBConnections\\GISAIR.sde')
 
         param01 = arcpy.Parameter(
             displayName='Table Storage Database',
@@ -52,7 +54,7 @@ class WeaverGDBUpdate(object):
             direction='Input'
         )
         param01.filter.list = ["Remote Database"]
-        param01.value = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'DBConnections\\App_Tables.sde')
+        param01.value = os.path.join(home_dir, 'DBConnections\\App_Tables.sde')
 
         param02 = arcpy.Parameter(
             displayName='Operating System Authentication',

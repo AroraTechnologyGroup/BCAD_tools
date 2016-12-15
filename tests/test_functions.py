@@ -19,7 +19,8 @@ class TestClean_row(TestCase):
 
 
 class TestCompare_tables(TestCase):
-    def setUp(self):
+    @classmethod
+    def setUpClass(cls):
         """out_folder, out_name, platform, instance, options"""
         tool = PythonTool()
         parameters = tool.getParameterInfo()
@@ -31,15 +32,16 @@ class TestCompare_tables(TestCase):
         opt = params["opt"]
         connector = Connector(out_f=out_folder, out_name=out_name, platform=plat,
                               instance=inst, options=opt)
-        self.sde_file = connector.create_sde_connection()
-        self.params = params
+        cls.sde_file = connector.create_sde_connection()
+        cls.params = params
 
-    def tearDown(self):
+    @classmethod
+    def tearDownClass(cls):
         try:
-            os.remove(self.sde_file)
+            os.remove(cls.sde_file)
         except:
             pass
-        self.params = None
+        cls.params = None
 
     def test_compare_tables(self):
         params = self.params
@@ -51,6 +53,7 @@ class TestCompare_tables(TestCase):
         compare = Code.compare_tables(sql_table=SQL_Table, gdb_table=GDB_Table)
         keys = compare.keys()
         keys.sort()
+        # these items must be in alphabetical order!
         self.assertListEqual(["add_rows", "compare_result", "exist_rows", "folioIds",
                              "match_fields"], keys)
 
@@ -63,6 +66,7 @@ class TestCompare_tables(TestCase):
             rows = len(compare["add_rows"]) + len(compare["exist_rows"])
             print "length should be greater than 0 :: {}".format(rows)
             self.assertGreaterEqual(rows, 1)
+            # check that foliosIds are snagged
             self.assertGreaterEqual(len(compare["folioIds"]), 1)
 
 

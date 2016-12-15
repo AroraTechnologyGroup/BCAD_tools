@@ -4,9 +4,7 @@ import sys
 import logging
 from arcpy import da
 from arcpy import env
-from collections import Counter
 import traceback
-import datetime
 env.overwriteOutput = 1
 
 
@@ -92,7 +90,7 @@ def compare_tables(sql_table, gdb_table):
             except IndexError:
                 pass
     folioIds = list(set(folioIds))
-    arcpy.AddMessage("These folioIds will be updated from the weaver table :: {}".format(folioIds))
+    arcpy.AddMessage("These {} folioIds will be updated from the weaver table :: {}".format(len(folioIds), folioIds))
     return {"match_fields": _match_fields,
             "folioIds": folioIds,
             "compare_result": compare_result,
@@ -378,6 +376,7 @@ class BuildingsUpdater:
             """take the input multivalue list and output a string"""
             _ph = _input
             if type(_ph) == list:
+                _ph = list(set(_ph))
                 _ph = ", ".join(_ph)
             return _ph
 
@@ -405,8 +404,6 @@ class BuildingsUpdater:
         except RuntimeError as e:
             print e.message
 
-        self.editor.startOperation()
-
         fields = [self.bldg_folio, self.bldg_update_fields[0], self.bldg_update_fields[1]]
         if len(keys) == 1:
             sql_expression = "{} = '{}'".format(fields[0], keys[0])
@@ -417,6 +414,7 @@ class BuildingsUpdater:
         # phase names and project names
         arcpy.AddMessage("The buildings are now being updated")
         i = 0
+        self.editor.startOperation()
         with da.UpdateCursor(self.buildings, fields, sql_expression) as _cursor:
             for _row in _cursor:
                 cleaned_row = clean_row(_row)
@@ -430,17 +428,19 @@ class BuildingsUpdater:
 
                     new_row = [folio_id, phase_name, project_name]
                     if _row != new_row:
-                        _cursor.updateRow(new_row)
-                        i += 1
+                        try:
+                            _cursor.updateRow(new_row)
+                            i += 1
+                        except:
+                            pass
                     else:
                         # the row has not changed
                         pass
                 else:
-                    print "{} is not in the weaver table".format(folio_id)
+                    print "folio# {} was not found in the related table".format(folio_id)
         del _cursor
-        arcpy.AddMessage("{} buildings were updated with values".format(i))
-
         self.editor.stopOperation()
+        arcpy.AddMessage("{} buildings were updated with values".format(i))
         return True
 
 
