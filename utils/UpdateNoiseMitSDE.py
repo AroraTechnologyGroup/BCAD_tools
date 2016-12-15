@@ -60,17 +60,17 @@ def compare_tables(sql_table, gdb_table):
     add_rows = []
     with da.SearchCursor(sql_table, _match_fields) as cursor:
         for row in cursor:
-            tuple_row = tuple(row)
-            add_rows.append(tuple_row)
+            row = clean_row(row)
+            add_rows.append(row)
     del cursor
 
     rem_rows = []
     with da.SearchCursor(gdb_table, _match_fields) as cursor:
         for row in cursor:
-            tuple_row = tuple(row)
+            row = clean_row(row)
             # the rows from the GDB table, are identical to any row in the list, remove that row from the list
-            if tuple_row in add_rows:
-                add_rows.remove(tuple_row)
+            if row in add_rows:
+                add_rows.remove(row)
                 pass
             # if the row is not in the add_rows, then add it to the exist_rows to remove
             else:
@@ -92,7 +92,7 @@ def compare_tables(sql_table, gdb_table):
             except IndexError:
                 pass
     folioIds = list(set(folioIds))
-    arcpy.AddMessage("These folioIds will be updated in the buildings feature class :: {}".format(folioIds))
+    arcpy.AddMessage("These folioIds will be updated from the weaver table :: {}".format(folioIds))
     return {"match_fields": _match_fields,
             "folioIds": folioIds,
             "compare_result": compare_result,
@@ -111,8 +111,10 @@ def clean_row(_row):
     """take an input row from a cursor, clean it, then return the cleaned row"""
     cleaned_row = []
     for _x in _row:
-        if _x is not None:
+        try:
             _x = _x.strip()
+        except AttributeError:
+            pass
         cleaned_row.append(_x)
     return cleaned_row
 
@@ -277,13 +279,14 @@ class GDBTableUpdater:
                 try:
                     insert.insertRow(_row)
                     i += 1
-                    arcpy.AddMessage("{} was added as a row.".format(_row))
                 except Exception as e:
                     print e.message
 
             del insert
             if not i:
                 arcpy.AddWarning("Rows were not added to the GDB Table")
+            else:
+                arcpy.AddMessage("{} rows were added to the GDB Table".format(i))
             self.editor.stopOperation()
             return i
 
@@ -296,19 +299,26 @@ class GDBTableUpdater:
         try:
             self.editor.startOperation()
             i = 0
-            with da.UpdateCursor(self.write_table, self.match_fields, "{} in ('{})'".format(
+            rem_rows = self.remove_rows
+            with da.UpdateCursor(self.write_table, self.match_fields, "{} in ('{}')".format(
                     self.folio_field, "','".join(folio_ids))) as _cursor:
                 for line in _cursor:
                     # delete all rows that are identical to an item in the input list
-                    if tuple(line) in self.remove_rows:
-                        _cursor.deleteRow()
-                        arcpy.AddMessage("The row '{}' was removed".format(line))
+                    line = clean_row(line)
+                    if line in rem_rows:
                         i += 1
+                        _cursor.deleteRow()
+                        pass
                     else:
-                        arcpy.AddWarning("{} does not exist in {}".format(line, self.remove_rows))
+                        pass
             del _cursor
+            if not i:
+                arcpy.AddWarning("Rows were not removed from the GDB Table")
+            else:
+                arcpy.AddMessage("{} rows were removed from the GDB Table".format(i))
             self.editor.stopOperation()
             return i
+
         except Exception as e:
             print e.message
             self.editor.stopOperation()

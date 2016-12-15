@@ -10,7 +10,6 @@ from utils import UpdateNoiseMitSDE
 from utils.UpdateNoiseMitSDE import VersionManager, GDBTableUpdater, BuildingsUpdater
 
 env.overwriteOutput = 1
-reload(UpdateNoiseMitSDE)
 
 
 class Toolbox(object):
@@ -407,12 +406,12 @@ class WeaverGDBUpdate(object):
                 env.workspace = sde_file
                 fields = [x for x in building_attributes.itervalues()]
                 cursor = da.SearchCursor(bldgs, fields,
-                                         "{} in ('{}')".format(building_attributes["Folio Number"], ','.join(folioIds)))
+                                         "{} in ('{}')".format(building_attributes["Folio Number"], "','".join(folioIds)))
                 try:
                     values = cursor.next()
                     arcpy.AddMessage("This is an edited row in the buildings table :: {}".format(values))
                 except StopIteration:
-                    arcpy.AddMessage("No building found with folioID {}".format(folioIds[0]))
+                    arcpy.AddMessage("No buildings found with folioIDs in {}".format(folioIds))
                 del cursor
 
             else:
