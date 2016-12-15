@@ -14,8 +14,10 @@ suite3 = test_gdbTableUpdater.suite()
 suite4 = test_buildingsUpdater.suite()
 
 
-all_suites = unittest.TestSuite([suite1, suite2, suite3, suite4])
+conn_suites = unittest.TestSuite([suite1, suite2])
+data_suites = unittest.TestSuite([suite3, suite4])
 
 runner = unittest.TextTestRunner()
 runner.run(functions_suite)
-runner.run(all_suites)
+runner.run(conn_suites)
+runner.run(data_suites)

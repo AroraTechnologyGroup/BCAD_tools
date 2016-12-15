@@ -113,7 +113,7 @@ class WeaverGDBUpdate(object):
             parameterType='Required',
             direction='Input'
         )
-        param07.value = '{}\\App_Tables.dbo.WEAVERDATAIMPORT_SUBSET'.format(param01.value)
+        param07.value = '{}\\App_Tables.dbo.WEAVERDATAIMPORT'.format(param01.value)
 
         # GDB table with holds the weaver data from the sql table
         param08 = arcpy.Parameter(

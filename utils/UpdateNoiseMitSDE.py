@@ -7,6 +7,8 @@ from arcpy import env
 import traceback
 env.overwriteOutput = 1
 
+home_dir = os.path.dirname(os.path.abspath(__file__))
+
 
 def compare_tables(sql_table, gdb_table):
     """Compare the fields between the tables to catch a schema change.
@@ -242,7 +244,7 @@ class VersionManager:
         try:
             # Block additional connections during rec/post
             env.workspace = self.version_sde
-            logfile = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs\\NoiseMit_logfile.txt")
+            logfile = os.path.join(home_dir, "logs\\NoiseMit_logfile.txt")
             arcpy.ReconcileVersions_management(self.version_sde, "ALL_VERSIONS", u"{}".format(self.parent_version),
                                                u"{}".format(self.version_name), "NO_LOCK_ACQUIRED",
                                                "ABORT_CONFLICTS", "BY_OBJECT", "FAVOR_TARGET_VERSION",
@@ -386,61 +388,69 @@ class BuildingsUpdater:
         # add the phase name and project name to the values for the
         # dictionary index of the folio number
         keys = _folios.keys()
+        run = 0
         if len(keys) == 1:
             sql_expression = "{} = '{}'".format(fields[0], keys[0])
+            run += 1
         elif len(keys) > 1:
             sql_expression = "{} in ('{}')".format(fields[0], "','".join(keys))
+            run += 1
+        else:
+            arcpy.AddMessage("keys: {}".format(len(keys)))
 
-        try:
-            with da.SearchCursor(self.rel_table, fields, sql_expression) as _cursor:
+        if run:
+            try:
+                with da.SearchCursor(self.rel_table, fields, sql_expression) as _cursor:
+                    for _row in _cursor:
+                        cleaned_row = clean_row(_row)
+                        if cleaned_row[0] in _folios:
+                            _folios[cleaned_row[0]]["Phase Names"].append(cleaned_row[1])
+                            _folios[cleaned_row[0]]["Project Names"].append(cleaned_row[2])
+
+                del _cursor
+
+            except RuntimeError as e:
+                print e.message
+
+            fields = [self.bldg_folio, self.bldg_update_fields[0], self.bldg_update_fields[1]]
+            if len(keys) == 1:
+                sql_expression = "{} = '{}'".format(fields[0], keys[0])
+            elif len(keys) > 1:
+                sql_expression = "{} in ('{}')".format(fields[0], "','".join(keys))
+            # iterate through the buildings with an SQL filter for the folioIds being updated;
+            # for each folio number create the new string value of the concatenated
+            # phase names and project names
+            arcpy.AddMessage("The buildings are now being updated")
+            i = 0
+            self.editor.startOperation()
+            with da.UpdateCursor(self.buildings, fields, sql_expression) as _cursor:
                 for _row in _cursor:
                     cleaned_row = clean_row(_row)
-                    if cleaned_row[0] in _folios:
-                        _folios[cleaned_row[0]]["Phase Names"].append(cleaned_row[1])
-                        _folios[cleaned_row[0]]["Project Names"].append(cleaned_row[2])
+                    folio_id = cleaned_row[0]
+                    if folio_id in keys:
+                        ph = _folios[folio_id]["Phase Names"]
+                        phase_name = concat_list(ph)
 
-            del _cursor
+                        pn = _folios[folio_id]["Project Names"]
+                        project_name = concat_list(pn)
 
-        except RuntimeError as e:
-            print e.message
-
-        fields = [self.bldg_folio, self.bldg_update_fields[0], self.bldg_update_fields[1]]
-        if len(keys) == 1:
-            sql_expression = "{} = '{}'".format(fields[0], keys[0])
-        elif len(keys) > 1:
-            sql_expression = "{} in ('{}')".format(fields[0], "','".join(keys))
-        # iterate through the buildings with an SQL filter for the folioIds being updated;
-        # for each folio number create the new string value of the concatenated
-        # phase names and project names
-        arcpy.AddMessage("The buildings are now being updated")
-        i = 0
-        self.editor.startOperation()
-        with da.UpdateCursor(self.buildings, fields, sql_expression) as _cursor:
-            for _row in _cursor:
-                cleaned_row = clean_row(_row)
-                folio_id = cleaned_row[0]
-                if folio_id in keys:
-                    ph = _folios[folio_id]["Phase Names"]
-                    phase_name = concat_list(ph)
-
-                    pn = _folios[folio_id]["Project Names"]
-                    project_name = concat_list(pn)
-
-                    new_row = [folio_id, phase_name, project_name]
-                    if _row != new_row:
-                        try:
-                            _cursor.updateRow(new_row)
-                            i += 1
-                        except:
+                        new_row = [folio_id, phase_name, project_name]
+                        if _row != new_row:
+                            try:
+                                _cursor.updateRow(new_row)
+                                i += 1
+                            except:
+                                pass
+                        else:
+                            # the row has not changed
                             pass
                     else:
-                        # the row has not changed
-                        pass
-                else:
-                    print "folio# {} was not found in the related table".format(folio_id)
-        del _cursor
-        self.editor.stopOperation()
-        arcpy.AddMessage("{} buildings were updated with values".format(i))
+                        print "folio# {} was not found in the related table".format(folio_id)
+            del _cursor
+            self.editor.stopOperation()
+            arcpy.AddMessage("{} buildings were updated with values".format(i))
+        else:
+            arcpy.AddWarning("Buildings were not updated.")
         return True
 
 
