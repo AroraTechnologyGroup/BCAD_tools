@@ -12,6 +12,8 @@ from utils.UpdateNoiseMitSDE import VersionManager, GDBTableUpdater, BuildingsUp
 env.overwriteOutput = 1
 
 home_dir = os.path.dirname(os.path.abspath(__file__))
+# Switch this to True when deploying on BCAD to use their defaults
+prod = False
 
 
 class Toolbox(object):
@@ -44,7 +46,10 @@ class WeaverGDBUpdate(object):
             direction='Input',
         )
         param0.filter.list = ["Remote Database"]
-        param0.value = os.path.join(home_dir, 'DBConnections\\GISAIR.sde')
+        if prod:
+            param0.value = os.path.join(home_dir, 'DBConnections\\ad_gisair_dev.sde')
+        else:
+            param0.value = os.path.join(home_dir, 'DBConnections\\GISAIR.sde')
 
         param01 = arcpy.Parameter(
             displayName='Table Storage Database',
@@ -54,7 +59,10 @@ class WeaverGDBUpdate(object):
             direction='Input'
         )
         param01.filter.list = ["Remote Database"]
-        param01.value = os.path.join(home_dir, 'DBConnections\\App_Tables.sde')
+        if prod:
+            param01.value = os.path.join(home_dir, 'DBConnections\\ad_noisemit.sde')
+        else:
+            param01.value = os.path.join(home_dir, 'DBConnections\\App_Tables.sde')
 
         param02 = arcpy.Parameter(
             displayName='Operating System Authentication',
@@ -63,7 +71,10 @@ class WeaverGDBUpdate(object):
             parameterType='Optional',
             direction='Input'
         )
-        param02.value = False
+        if prod:
+            param02.value = True
+        else:
+            param02.value = False
 
         # # username for the database user
         param03 = arcpy.Parameter(
@@ -73,7 +84,10 @@ class WeaverGDBUpdate(object):
             parameterType='Optional',
             direction='Input'
         )
-        param03.value = 'gissetup'
+        if prod:
+            param03.value = ''
+        else:
+            param03.value = 'gissetup'
 
         # password for the database user
         param04 = arcpy.Parameter(
@@ -83,7 +97,10 @@ class WeaverGDBUpdate(object):
             parameterType='Optional',
             direction='Input'
         )
-        param04.value = 'AroraGIS123!'
+        if prod:
+            param04.value = ''
+        else:
+            param04.value = 'AroraGIS123!'
 
         # variable for the parent version of the database
         param05 = arcpy.Parameter(
@@ -93,7 +110,10 @@ class WeaverGDBUpdate(object):
             parameterType='Required',
             direction='Input'
         )
-        param05.value = 'dbo.DEFAULT'
+        if prod:
+            param05.value = 'sde.DEFAULT'
+        else:
+            param05.value = 'dbo.DEFAULT'
 
         # name of building polygon feature class
         param06 = arcpy.Parameter(
@@ -103,7 +123,10 @@ class WeaverGDBUpdate(object):
             parameterType='Required',
             direction='Input'
         )
-        param06.value = '{}\\bcad_noise.DBO.Noise_Mitigation\\bcad_noise.DBO.NoiseBuilding'.format(param0.value)
+        if prod:
+            param06.value = '{}\\GISAIRD.BCAD.Noise_Mitigation\\GISAIRD.BCAD.NoiseBuilding'.format(param0.value)
+        else:
+            param06.value = '{}\\bcad_noise.DBO.Noise_Mitigation\\bcad_noise.DBO.NoiseBuilding'.format(param0.value)
 
         # sql table used to update the geodatabase table
         param07 = arcpy.Parameter(
@@ -113,7 +136,10 @@ class WeaverGDBUpdate(object):
             parameterType='Required',
             direction='Input'
         )
-        param07.value = '{}\\App_Tables.dbo.WEAVERDATAIMPORT'.format(param01.value)
+        if prod:
+            param07.value = '{}\\NoiseMit.bcad.WeaverDataImport'.format(param01.value)
+        else:
+            param07.value = '{}\\App_Tables.dbo.WEAVERDATAIMPORT'.format(param01.value)
 
         # GDB table with holds the weaver data from the sql table
         param08 = arcpy.Parameter(
@@ -123,7 +149,10 @@ class WeaverGDBUpdate(object):
             parameterType='Required',
             direction='Input'
         )
-        param08.value = r'{}\\bcad_noise.DBO.WeaverDataImport'.format(param0.value)
+        if prod:
+            param08.value = r'{}\\GISAIRD.BCAD.WeaverDataImport'.format(param0.value)
+        else:
+            param08.value = r'{}\\bcad_noise.DBO.WeaverDataImport'.format(param0.value)
 
         param09 = arcpy.Parameter(
             displayName='Buildings ProjectName Field',
@@ -165,7 +194,7 @@ class WeaverGDBUpdate(object):
             parameterType='Required',
             direction='Input'
         )
-        param12.parameterDependencies = [param07.name]
+        param12.parameterDependencies = [param08.name]
         param12.filter.list = ['Text']
         param12.value = "ProjectName"
 
@@ -176,7 +205,7 @@ class WeaverGDBUpdate(object):
             parameterType='Required',
             direction='Input'
         )
-        param13.parameterDependencies = [param07.name]
+        param13.parameterDependencies = [param08.name]
         param13.filter.list = ['Text']
         param13.value = "PhaseName"
 
@@ -187,7 +216,7 @@ class WeaverGDBUpdate(object):
             parameterType='Required',
             direction='Input'
         )
-        param14.parameterDependencies = [param07.name]
+        param14.parameterDependencies = [param08.name]
         param14.filter.list = ['Text']
         param14.value = "FolioNumber"
 
