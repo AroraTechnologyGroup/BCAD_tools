@@ -5,6 +5,7 @@ import logging
 from arcpy import da
 from arcpy import env
 import traceback
+import datetime
 env.overwriteOutput = 1
 
 home_dir = os.path.dirname(os.path.abspath(__file__))
@@ -41,8 +42,12 @@ def compare_tables(sql_table, gdb_table):
     missing_fields = [f for f in target_fields.keys() if f not in source_fields.keys()]
 
     _match_fields = [f for f in target_fields.keys() if f in source_fields.keys()]
-    if "OBJECTID" in _match_fields:
-        _match_fields.remove("OBJECTID")
+
+    # these attributes will differ between the tables and break the matching
+    remove_fields = ["OBJECTID", "DateStamp"]
+    for x in remove_fields:
+        if x in _match_fields:
+            _match_fields.remove(x)
 
     folio_index = []
     if "FolioNumber" in _match_fields:
@@ -78,21 +83,32 @@ def compare_tables(sql_table, gdb_table):
     del cursor
 
     compare_result = 0
-    folioIds = []
+    folioId_dict = {
+        "rem": [],
+        "add": []
+    }
     if len(add_rows) or len(rem_rows):
         compare_result += 1
         for x in add_rows:
             try:
-                folioIds.append(x[folio_index[0]])
+                folioId_dict["add"].append(x[folio_index[0]])
             except IndexError:
                 pass
         for x in rem_rows:
             try:
-                folioIds.append(x[folio_index[0]])
+                folioId_dict["rem"].append(x[folio_index[0]])
             except IndexError:
                 pass
+
+    folioIds = []
+    folioIds.extend(folioId_dict["rem"])
+    folioIds.extend(folioId_dict["add"])
     folioIds = list(set(folioIds))
-    arcpy.AddMessage("These {} folioIds will be updated from the weaver table :: {}".format(len(folioIds), folioIds))
+
+    arcpy.AddMessage("{} folioIds will be updated from the weaver table".format(len(folioIds)))
+    arcpy.AddMessage("{} folios are flagged for removal".format(len(set(folioId_dict["rem"]))))
+    arcpy.AddMessage("{} folios are flagged for insert".format(len(set(folioId_dict["add"]))))
+
     return {"match_fields": _match_fields,
             "folioIds": folioIds,
             "compare_result": compare_result,
@@ -142,20 +158,17 @@ class SdeConnector:
         if os.path.exists(loc):
             os.remove(loc)
 
-        sd = arcpy.CreateDatabaseConnection_management(self.out_folder, self.connection_name, self.platform, self.instance,
+        try:
+            sd = arcpy.CreateDatabaseConnection_management(self.out_folder, self.connection_name, self.platform, self.instance,
                                                        **self.options)
-        # input path to the dev sde database connection
-        target_sde = sd.getOutput(0)
-        if not os.path.exists(target_sde):
-            raise Exception("The sde file was not created")
-
-        env.workspace = target_sde
-
-        if arcpy.Exists(target_sde):
-            d = target_sde
-        else:
-            d = False
-        return d
+            # input path to the dev sde database connection
+            target_sde = sd.getOutput(0)
+            if not os.path.exists(target_sde):
+                raise Exception("The sde file was not created")
+            else:
+                return target_sde
+        except Exception as e:
+            arcpy.AddError(e.message)
 
 
 class VersionManager:
@@ -165,13 +178,13 @@ class VersionManager:
         self.connection_folder = connection_folder
         self.target_sde = target_sde
         parent_version = opt["version"]
-        self.version_name = u"{}.{}".format(parent_version.split(".")[0].upper(), new_version)
         self.new_version = new_version
         self.new_connection = new_connection
         self.version_sde = ""
         self.parent_version = parent_version
         self.platform = platform
         self.instance = instance
+        self.edit_version = ""
         pass
 
     def clean_previous(self):
@@ -187,28 +200,33 @@ class VersionManager:
 
         if len(versions):
             v_names = [v.name for v in versions]
-            if self.version_name in v_names:
-                try:
-                    arcpy.DeleteVersion_management(self.target_sde, self.version_name)
-                    return True
-                except:
-                    raise VersionException()
-            elif len(v_names) == 1:
-                return True
-            else:
-                logging.warning("""There are versions existing in the geodatabase
-                                 that may need to be removed:: {}""".format(v_names))
+            last_names = [x.split(".")[-1] for x in v_names]
+            z = list(zip(last_names, v_names))
+            for v in z:
+                if v[0].lower() == "default":
+                    pass
+                elif self.new_version.lower() == v[0].lower():
+                    try:
+                        arcpy.DeleteVersion_management(self.target_sde, v[1])
+                    except Exception as e:
+                        arcpy.AddError(e.message)
+                else:
+                    logging.warning("""There are versions existing in the geodatabase
+                                     that may need to be removed:: {}""".format(v_names))
         else:
             logging.info("no versions found")
-            return True
+
+        return True
 
     def connect_version(self):
         arcpy.AddMessage("VersionManager.connect_version()")
         # create version to edit
         versions = da.ListVersions(self.target_sde)
+
         if len(versions):
             v_names = [v.name for v in versions]
-            if self.version_name in v_names:
+            last_names = [x.split(".")[-1] for x in v_names]
+            if self.new_version in last_names:
                 raise VersionException("Version already exists, must remove before proceeding")
             else:
                 try:
@@ -218,13 +236,17 @@ class VersionManager:
                     v_opt = self.opt.copy()
 
                     versions = da.ListVersions(self.target_sde)
-                    edit_version = []
-                    for x in versions:
-                        if self.new_version in x.name:
-                            edit_version.append(x.name)
+                    v_names = [v.name for v in versions]
+                    last_names = [x.split(".")[-1] for x in v_names]
+                    z = list(zip(last_names, v_names))
+                    v_store = []
+                    for x in z:
+                        if self.new_version == x[0]:
+                            v_store.append(x[1])
 
-                    v_opt["version"] = edit_version[0]
-                    arcpy.AddMessage("Edit Version selected :: {}".format(edit_version[0]))
+                    self.edit_version = v_store[0]
+                    v_opt["version"] = v_store[0]
+                    arcpy.AddMessage("Edit Version selected :: {}".format(v_store[0]))
 
                     # create SdeConnector object for the version
                     # out_folder, out_name, platform, instance, options
@@ -245,14 +267,16 @@ class VersionManager:
             # Block additional connections during rec/post
             env.workspace = self.version_sde
             logfile = os.path.join(home_dir, "logs\\NoiseMit_logfile.txt")
+
+            # putting the version in a list is required for OS Auth versions
             arcpy.ReconcileVersions_management(self.version_sde, "ALL_VERSIONS", u"{}".format(self.parent_version),
-                                               u"{}".format(self.version_name), "NO_LOCK_ACQUIRED",
-                                               "ABORT_CONFLICTS", "BY_OBJECT", "FAVOR_TARGET_VERSION",
+                                               [self.edit_version], "LOCK_ACQUIRED",
+                                               "NO_ABORT", "BY_OBJECT", "FAVOR_TARGET_VERSION",
                                                "POST", "DELETE_VERSION", logfile)
             os.remove(self.version_sde)
             return True
         except Exception as e:
-            raise VersionException("Unable to rec/post edits :: {}".format(e.message))
+            arcpy.AddError("Unable to rec/post edits :: {}".format(e.message))
 
 
 class GDBTableUpdater:
@@ -272,15 +296,23 @@ class GDBTableUpdater:
         arcpy.AddMessage("GDBTableUpdater.insert_rows()")
         try:
             self.editor.startOperation()
-            insert = da.InsertCursor(self.write_table, self.match_fields)
+            fields = []
+            fields.extend(self.match_fields)
+            # insert today's date
+            fields.append("DateStamp")
+            insert = da.InsertCursor(self.write_table, fields)
             i = 0
-            pre_cnt = int(arcpy.GetCount_management(self.write_table).getOutput(0))
             for _row in self.read_rows:
                 try:
-                    insert.insertRow(_row)
-                    i += 1
+                    _row.append(datetime.datetime.today())
+                    arcpy.AddMessage(_row)
+                    try:
+                        insert.insertRow(_row)
+                        i += 1
+                    except Exception as e:
+                        arcpy.AddWarning(e.message)
                 except Exception as e:
-                    print e.message
+                    arcpy.AddWarning(e.message)
 
             del insert
             if not i:
