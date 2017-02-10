@@ -1,7 +1,7 @@
 import os
 import sys
 import traceback
-
+import datetime
 import arcpy
 from arcpy import da
 from arcpy import env
@@ -365,31 +365,30 @@ class WeaverGDBUpdate(object):
             add_rows = result["add_rows"]
             exist_rows = result["exist_rows"]
 
+            # create VersionManager class object to create new version, connect to it,
+            # and create an sde connection file, set as current workspace
+
+            version_manager = VersionManager(opt, connection_folder, sde_file, edit_version_name, edit_connection_name, platform, instance)
+            version_manager.clean_previous()
+            version_sde_file = version_manager.connect_version()
+
+            if os.path.exists(version_sde_file):
+                arcpy.AddMessage(version_sde_file)
+            else:
+                raise Exception("version_sde_file not created")
+
+            editor = da.Editor(version_sde_file)
+            editor.startEditing()
+            env.workspace = version_sde_file
+            gdb_table = arcpy.ListTables("*{}*".format(gdb_table_name))[0]
+            weaver_updater = GDBTableUpdater(weaver_attributes, folioIds, match_fields, gdb_table, add_rows, exist_rows,
+                                             version_sde_file, editor)
             # compare result if True means that changes need to be made to the GDB Table and thus the Buildings
             if compare_result:
                 arcpy.AddMessage({"# rows to add": len(add_rows),
                                   "# rows to remove": len(exist_rows)})
-                # create VersionManager class object to create new version, connect to it,
-                # and create an sde connection file, set as current workspace
-
-                version_manager = VersionManager(opt, connection_folder, sde_file, edit_version_name, edit_connection_name, platform, instance)
-                version_manager.clean_previous()
-                version_sde_file = version_manager.connect_version()
-
-                if os.path.exists(version_sde_file):
-                    arcpy.AddMessage(version_sde_file)
-                else:
-                    raise Exception("version_sde_file not created")
-
-                editor = da.Editor(version_sde_file)
-                editor.startEditing()
-                env.workspace = version_sde_file
-                gdb_table = arcpy.ListTables("*{}*".format(gdb_table_name))[0]
+                
                 if arcpy.Exists(gdb_table):
-                    # create GDBTableUpdater class object
-                    weaver_updater = GDBTableUpdater(weaver_attributes, folioIds, match_fields, gdb_table, add_rows, exist_rows,
-                                                     version_sde_file, editor)
-
                     # should return True when editing is complete
                     table_updated = weaver_updater.perform_update()
 
@@ -402,18 +401,7 @@ class WeaverGDBUpdate(object):
 
                             # should return True when editing it complete
                             buildings_updated = building_updater.update_buildings()
-
                             editor.stopEditing(True)
-                            del editor
-
-                            try:
-                                version_manager.rec_post()
-                            except Exception as e:
-                                arcpy.AddError("Exception occurred during the rec/post operation, " +
-                                "the edits were saved in the version however the version will be removed without the " +
-                                "edits having been posted to the default version :: {} :: {}".format(e.message,
-                                                                                                     traceback.print_exc()))
-
                         except Exception as e:
                             editor.stopEditing(False)
                             del editor
@@ -429,7 +417,11 @@ class WeaverGDBUpdate(object):
                     del editor
                     arcpy.AddError("Unable to determine the gdb table\
                                     using the version connection")
-
+            else:
+                arcpy.AddMessage("The files are identical, no edits needed")
+                weaver_updater.last_scanned_date()
+            try:
+                version_manager.rec_post()
                 version_manager.clean_previous()
                 del version_manager
 
@@ -445,10 +437,11 @@ class WeaverGDBUpdate(object):
                 except StopIteration:
                     arcpy.AddMessage("No buildings found with folioIDs in {}".format(folioIds))
                 del cursor
-
-            else:
-                arcpy.AddMessage("The files are identical, no edits needed")
-
+            except Exception as e:
+                arcpy.AddError("Exception occurred during the rec/post operation, " +
+                "the edits were saved in the version however the version will be removed without the " +
+                "edits having been posted to the default version :: {} :: {}".format(e.message,
+                                                                                     traceback.print_exc()))
             return True
 
         except:

@@ -44,11 +44,15 @@ def compare_tables(sql_table, gdb_table):
     _match_fields = [f for f in target_fields.keys() if f in source_fields.keys()]
 
     # these attributes will differ between the tables and break the matching
-    remove_fields = ["OBJECTID", "DateStamp"]
+    remove_fields = ["OBJECTID", "DateStamp", "LastScannedDate"]
     for x in remove_fields:
         if x in _match_fields:
             _match_fields.remove(x)
-
+        if x in missing_fields:
+            missing_fields.remove(x)
+        if x in new_fields:
+            new_fields.remove(x)
+            
     folio_index = []
     if "FolioNumber" in _match_fields:
         folio_index.append(_match_fields.index("FolioNumber"))
@@ -56,8 +60,8 @@ def compare_tables(sql_table, gdb_table):
     if len(new_fields):
         raise Exception("A schema change exists in the updated weaver table :: {}".format(new_fields))
 
-    if missing_fields != [u'OBJECTID'] and missing_fields != []:
-        arcpy.AddWarning("The updated weaver table is missing fields :: {}\
+    if missing_fields != remove_fields and missing_fields != []:
+        arcpy.AddInfo("The updated weaver table is missing fields :: {}\
                         A Schema change may be needed to import the table,\
                         or else the column will be empty".format(missing_fields))
 
@@ -153,6 +157,8 @@ class SdeConnector:
 
     def create_sde_connection(self):
         arcpy.AddMessage("SdeConnection.create_sde_connection()")
+        arcpy.AddMessage("out_folder: {}, connection_name: {}, platform: {}, instance: {}, options: {}".format(
+            self.out_folder, self.connection_name, self.platform, self.instance, self.options))
         # delete the sde file if it exists
         loc = os.path.join(self.out_folder, self.connection_name)
         if os.path.exists(loc):
@@ -378,9 +384,21 @@ class GDBTableUpdater:
             else:
                 # use the folioIds to filter before updating
                 self.update_table(self.folioIds)
+                self.last_scanned_date()
             return True
         except Exception as e:
             arcpy.AddError(e.message)
+
+    def last_scanned_date(self):
+        arcpy.AddMessage("GDBTableUpdater.last_scanned_date()")
+        # attribute the last scanned date
+        field = ["LastScannedDate"]
+        self.editor.startOperation()
+        with da.UpdateCursor(self.write_table, field) as cursor:
+            for row in cursor:
+                newrow = [datetime.datetime.today()]
+                cursor.updateRow(newrow)
+        self.editor.stopOperation()
 
 
 class BuildingsUpdater:
@@ -483,7 +501,7 @@ class BuildingsUpdater:
             arcpy.AddMessage("{} buildings were updated with values".format(i))
         else:
             arcpy.AddWarning("Buildings were not updated.")
-        return True
+        return self.Editor
 
 
 
