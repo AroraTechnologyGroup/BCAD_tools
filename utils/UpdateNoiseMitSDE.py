@@ -501,7 +501,7 @@ class BuildingsUpdater:
             arcpy.AddMessage("{} buildings were updated with values".format(i))
         else:
             arcpy.AddWarning("Buildings were not updated.")
-        return self.Editor
+        return self.editor
 
 
 
