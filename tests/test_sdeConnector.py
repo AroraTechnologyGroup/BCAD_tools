@@ -11,7 +11,7 @@ class TestSdeConnector(TestCase):
     def setUpClass(cls):
         tool = PythonTool()
         params = tool.getParameterInfo()
-        processed_params = tool.process_parameters(params)
+        processed_params = tool.processParameters(params)
         cls.params = processed_params
 
     def setUp(self):

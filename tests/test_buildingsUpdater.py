@@ -15,7 +15,7 @@ class TestBuildingsUpdater(TestCase):
     def setUpClass(cls):
         tool = PythonTool()
         parameters = tool.getParameterInfo()
-        params = tool.process_parameters(parameters=parameters)
+        params = tool.processParameters(parameters=parameters)
         cls.params = params
         buildings_name = params["buildings_name"]
         out_f = params["connection_folder"]
@@ -42,14 +42,14 @@ class TestBuildingsUpdater(TestCase):
 
         GDB_Table = self.params["gdb_table"]
         SQL_Table = self.params["sql_table"]
-        weav_atts = self.params["weaver_attributes"]
+        table_atts = self.params["table_attributes"]
         bldg_atts = self.params["building_attributes"]
         bldgs = self.versioned_buildings
         result = Tool.compare_tables(sql_table=SQL_Table, gdb_table=GDB_Table)
         folioIds = result["folioIds"]
         # folioIds, bldgs, rel_table, bldg_atts, weav_atts, version_sde, editor
         self.updater = Updater(folioIds=folioIds, bldgs=bldgs, rel_table=GDB_Table, bldg_atts=bldg_atts,
-                               weav_atts=weav_atts, version_sde=self.version_sde, editor=self.edit)
+                               table_atts=table_atts, version_sde=self.version_sde, editor=self.edit)
 
     def tearDown(self):
         self.updater = None

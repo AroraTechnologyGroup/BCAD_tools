@@ -12,23 +12,23 @@ out_writer = csv.writer(out)
 with open(input_file, 'rb') as f:
     dialect = csv.Sniffer().sniff(f.read(1024))
     f.seek(0)
-    
+
     reader = csv.reader(f, dialect)
     for row in reader:
         new_row = []
         for cell in row:
             if len(cell) > 250:
-                #print len(cell)
+                # print len(cell)
                 pass
-            
+
             cell = cell.strip()
             cell = cell[:50]
             cell = cell.replace(",", " ")
             cell = cell.replace("/", "_")
-            
+
             new_row.append(cell)
-            
+
         out_writer.writerow(new_row)
-        
+
 del out_writer
 out.close()

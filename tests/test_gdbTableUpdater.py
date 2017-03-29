@@ -11,17 +11,18 @@ from utils.UpdateNoiseMitSDE import GDBTableUpdater as Updater
 from utils.UpdateNoiseMitSDE import VersionManager as Manager
 
 
-class TestWeaverUpdater(TestCase):
+class TestGDBTableUpdater(TestCase):
+
     @classmethod
     def setUpClass(cls):
         tool = PythonTool()
         parameters = tool.getParameterInfo()
-        params = tool.process_parameters(parameters=parameters)
+        params = tool.processParameters(parameters=parameters)
         out_f = params["connection_folder"]
         out_n = params["edit_connection_name"]
         plat = params["platform"]
         inst = params["instance"]
-        cls.weaver_attributes = params["weaver_attributes"]
+        cls.weaver_attributes = params["table_attributes"]
 
         edit_version_name = params["edit_version_name"]
         sql_table = params["sql_table"]
@@ -103,7 +104,7 @@ class TestWeaverUpdater(TestCase):
 
 
 def suite():
-    x = unittest.TestLoader().loadTestsFromTestCase(TestWeaverUpdater)
+    x = unittest.TestLoader().loadTestsFromTestCase(TestGDBTableUpdater)
     return unittest.TestSuite(x)
 
 if __name__ == "__main__":

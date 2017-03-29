@@ -11,7 +11,7 @@ class TestVersionManager(TestCase):
     def setUpClass(cls):
         tool = PythonTool()
         parameters = tool.getParameterInfo()
-        params = tool.process_parameters(parameters=parameters)
+        params = tool.processParameters(parameters=parameters)
         cls.out_f = params["connection_folder"]
         cls.out_n = params["edit_connection_name"]
         cls.plat = params["platform"]

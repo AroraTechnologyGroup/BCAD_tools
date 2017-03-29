@@ -6,14 +6,13 @@ import arcpy
 
 import utils.UpdateNoiseMitSDE as Code
 from BCAD_NoiseMit_Tools import WeaverGDBUpdate as PythonTool
-from utils import UpdateNoiseMitSDE as Tool
 from utils.UpdateNoiseMitSDE import SdeConnector as Connector
 
 
 class TestClean_row(TestCase):
     def test_clean_row(self):
         test_row = ["   ", None, "  apple", "tree  "]
-        row = Tool.clean_row(test_row)
+        row = Code.clean_row(test_row)
         print row
         self.assertListEqual(["", None, "apple", "tree"], row)
 
@@ -24,7 +23,7 @@ class TestCompare_tables(TestCase):
         """out_folder, out_name, platform, instance, options"""
         tool = PythonTool()
         parameters = tool.getParameterInfo()
-        params = tool.process_parameters(parameters=parameters)
+        params = tool.processParameters(parameters=parameters)
         out_folder = params["connection_folder"]
         out_name = params["edit_connection_name"]
         plat = params["platform"]
@@ -70,10 +69,43 @@ class TestCompare_tables(TestCase):
             self.assertGreaterEqual(len(compare["folioIds"]), 1)
 
 
+class TestPrintConnection_info(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        tool = PythonTool()
+        parameters = tool.getParameterInfo()
+        params = tool.processParameters(parameters=parameters)
+        out_folder = params["connection_folder"]
+        out_name = params["edit_connection_name"]
+        plat = params["platform"]
+        inst = params["instance"]
+        opt = params["opt"]
+        connector = Connector(out_f=out_folder, out_name=out_name, platform=plat,
+                              instance=inst, options=opt)
+        cls.sde_file = connector.create_sde_connection()
+        cls.params = params
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            os.remove(cls.sde_file)
+        except:
+            pass
+        cls.params = None
+
+    def test_print_connection_info(self):
+        params = self.params
+        ws = self.sde_file
+        info = Code.print_connection_info(ws)
+        self.assertTrue(info["database"])
+        self.assertTrue(info["version"])
+
+
 def suite():
     x = unittest.TestLoader().loadTestsFromTestCase(TestClean_row)
     y = unittest.TestLoader().loadTestsFromTestCase(TestCompare_tables)
-    return unittest.TestSuite([x, y])
+    z = unittest.TestLoader().loadTestsFromTestCase(TestPrintConnection_info)
+    return unittest.TestSuite([x, y, z])
 
 
 if __name__ == '__main__':
