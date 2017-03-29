@@ -74,73 +74,78 @@ def execute_tool(tool, params):
 
         editor = da.Editor(version_sde_file)
         editor.startEditing()
-        env.workspace = version_sde_file
-        gdb_table = arcpy.ListTables("*{}*".format(gdb_table_name))[0]
-        table_updater = GDBTableUpdater(table_attributes, folioIds, match_fields, gdb_table, add_rows, exist_rows,
-                                        version_sde_file, editor)
-        # compare result if True means that changes need to be made to the GDB Table and thus the Buildings
-        if compare_result:
-            arcpy.AddMessage({"# rows to add": len(add_rows),
-                              "# rows to remove": len(exist_rows)})
+        # ensure that editing is stopped following an exception
+        try:
+            env.workspace = version_sde_file
+            gdb_table = arcpy.ListTables("*{}*".format(gdb_table_name))[0]
+            table_updater = GDBTableUpdater(table_attributes, folioIds, match_fields, gdb_table, add_rows, exist_rows,
+                                            version_sde_file, editor)
+            # compare result if True means that changes need to be made to the GDB Table and thus the Buildings
+            if compare_result:
+                arcpy.AddMessage({"# rows to add": len(add_rows),
+                                  "# rows to remove": len(exist_rows)})
 
-            if arcpy.Exists(gdb_table):
-                # should return True when editing is complete
-                table_updated = table_updater.perform_update()
+                if arcpy.Exists(gdb_table):
+                    # should return True when editing is complete
+                    table_updated = table_updater.perform_update()
 
-                # create BuildingUpdater class object
-                version_buildings = tool.get_versioned_fc(version_sde_file, buildings_name)
-                if arcpy.Exists(version_buildings):
-                    try:
-                        building_updater = BuildingsUpdater(folioIds, version_buildings, gdb_table, building_attributes,
-                                                            table_attributes, version_sde_file, editor)
+                    # create BuildingUpdater class object
+                    version_buildings = tool.get_versioned_fc(version_sde_file, buildings_name)
+                    if arcpy.Exists(version_buildings):
+                        try:
+                            building_updater = BuildingsUpdater(folioIds, version_buildings, gdb_table, building_attributes,
+                                                                table_attributes, version_sde_file, editor)
 
-                        # should return True when editing it complete
-                        buildings_updated = building_updater.update_buildings()
-                        editor.stopEditing(True)
-                    except Exception as e:
+                            # should return True when editing it complete
+                            buildings_updated = building_updater.update_buildings()
+                            editor.stopEditing(True)
+                        except Exception as e:
+                            editor.stopEditing(False)
+                            del editor
+                            arcpy.AddError("Exception occured during buildings updates, edits have not been saved :: {}" \
+                                           ":: {}".format(e.message, traceback.print_exc()))
+                    else:
                         editor.stopEditing(False)
                         del editor
-                        arcpy.AddError("Exception occured during buildings updates, edits have not been saved :: {}" \
-                                       ":: {}".format(e.message, traceback.print_exc()))
+                        arcpy.AddError("Unable to determine the buildings feature class\
+                                               using the version connection")
                 else:
                     editor.stopEditing(False)
                     del editor
-                    arcpy.AddError("Unable to determine the buildings feature class\
-                                           using the version connection")
+                    arcpy.AddError("Unable to determine the gdb table\
+                                            using the version connection")
             else:
-                editor.stopEditing(False)
-                del editor
-                arcpy.AddError("Unable to determine the gdb table\
-                                        using the version connection")
-        else:
-            arcpy.AddMessage("The files are identical, apply the last scanned date")
-            # This is important to add the datetime that the script was last run
-            table_updater.last_scanned_date()
-            editor.stopEditing(True)
+                arcpy.AddMessage("The files are identical, apply the last scanned date")
+                # This is important to add the datetime that the script was last run
+                table_updater.last_scanned_date()
+                editor.stopEditing(True)
 
-        try:
-            version_manager.rec_post()
-            version_manager.clean_previous()
-            del version_manager
-
-            # Verify that the edits where posted
-            # TODO- determine failproof methods for isolating the changed features and viewing the change
-            env.workspace = sde_file
-            fields = [x for x in building_attributes.itervalues()]
-            cursor = da.SearchCursor(bldgs, fields,
-                                     "{} in ('{}')".format(building_attributes["Folio Number"], "','".join(folioIds)))
             try:
-                values = cursor.next()
-                arcpy.AddMessage("This is an edited row in the buildings table :: {}".format(values))
-            except StopIteration:
-                arcpy.AddMessage("No buildings found with folioIDs in {}".format(folioIds))
-            del cursor
-        except Exception as e:
-            arcpy.AddError("Exception occurred during the rec/post operation, " +
-                           "the edits were saved in the version however the version will be removed without the " +
-                           "edits having been posted to the default version :: {} :: {}".format(e.message,
-                                                                                                traceback.print_exc()))
-        return True
+                version_manager.rec_post()
+                version_manager.clean_previous()
+                del version_manager
+
+                # Verify that the edits where posted
+                # TODO- determine failproof methods for isolating the changed features and viewing the change
+                env.workspace = sde_file
+                fields = [x for x in building_attributes.itervalues()]
+                cursor = da.SearchCursor(bldgs, fields,
+                                         "{} in ('{}')".format(building_attributes["Folio Number"], "','".join(folioIds)))
+                try:
+                    values = cursor.next()
+                    arcpy.AddMessage("This is an edited row in the buildings table :: {}".format(values))
+                except StopIteration:
+                    arcpy.AddMessage("No buildings found with folioIDs in {}".format(folioIds))
+                del cursor
+            except Exception as e:
+                arcpy.AddError("Exception occurred during the rec/post operation, " +
+                               "the edits were saved in the version however the version will be removed without the " +
+                               "edits having been posted to the default version :: {} :: {}".format(e.message,
+                                                                                                    traceback.print_exc()))
+            return True
+        except:
+            editor.stopEditing(False)
+            version_manager.clean_previous()
 
     except:
         exc_type, exc_value, exc_traceback = sys.exc_info()
@@ -608,7 +613,7 @@ class CARsGDBUpdate(object):
         )
 
         if environ == "bcad":
-            param07.value = '{}\\NoiseMit.bcad.WEAVERPROGRAMSTATUS'.format(param01.value)
+            param07.value = r'\\FLLGISSQL01\GIS Staging\dbConnections\ad_noisemit.sde\NoiseMit.dbo.WeaverProgramStatus'
         elif environ == "arora":
             param07.value = '{}\\App_Tables.dbo.WEAVERPROGRAMSTATUS_SUBSET'.format(param01.value)
 
@@ -622,7 +627,7 @@ class CARsGDBUpdate(object):
         )
 
         if environ == "bcad":
-            param08.value = r'{}\\GISAIRD.BCAD.SSACAR'.format(param0.value)
+            param08.value = r'\\FLLGISSQL01\GIS Staging\dbConnections\ad_gisair_dev.sde\GISAIRD.BCAD.SSACAR'
         elif environ == "arora":
             param08.value = r'{}\\bcad_noise.DBO.SSACAR'.format(param0.value)
 

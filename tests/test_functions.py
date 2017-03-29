@@ -5,7 +5,7 @@ from unittest import TestCase
 import arcpy
 
 import utils.UpdateNoiseMitSDE as Code
-from BCAD_NoiseMit_Tools import WeaverGDBUpdate as PythonTool
+from BCAD_NoiseMit_Tools import CARsGDBUpdate as PythonTool
 from utils.UpdateNoiseMitSDE import SdeConnector as Connector
 
 
