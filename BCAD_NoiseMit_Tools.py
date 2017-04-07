@@ -14,6 +14,7 @@ env.overwriteOutput = 1
 home_dir = os.path.dirname(os.path.abspath(__file__))
 
 environ = "arora"
+version = 'v1.1'
 
 
 def get_versioned_fc(workspace, name):
@@ -47,6 +48,11 @@ def execute_tool(tool, params):
     building_attributes = params["building_attributes"]
     table_attributes = params["table_attributes"]
     opt = params["opt"]
+    # check if fields are being combined during the update
+    keys = params.keys()
+    combination_attributes = None
+    if "combination_attributes" in keys:
+        combination_attributes = params["combination_attributes"]
 
     try:
 
@@ -94,7 +100,7 @@ def execute_tool(tool, params):
                     if arcpy.Exists(version_buildings):
                         try:
                             building_updater = BuildingsUpdater(folioIds, version_buildings, gdb_table, building_attributes,
-                                                                table_attributes, version_sde_file, editor)
+                                                                table_attributes, combination_attributes, version_sde_file, editor)
 
                             # should return True when editing it complete
                             buildings_updated = building_updater.update_buildings()
@@ -157,7 +163,7 @@ class Toolbox(object):
         """Define the toolbox (the name of the toolbox is the name of the
         .pyt file)."""
         self.label = "Toolbox"
-        self.alias = "Noise Mit Tools"
+        self.alias = "Noise Mit Tools {}".format(version)
 
         # List of tool classes associated with this toolbox
         self.tools = [WeaverGDBUpdate, CARsGDBUpdate]
@@ -168,7 +174,7 @@ class WeaverGDBUpdate(object):
         """Define the tool (tool name is the name of the class)."""
         self.label = "WeaverGDBUpdate"
         self.description = "The Weaver export to a SQL Table is used to update the GDB table " + \
-                           "that particapates in a one-to-many relationship class with the buildings feature class"
+                           "that particapates in a one-to-many relationship class with the noise buildings feature class"
         self.canRunInBackground = False
         self.get_versioned_fc = get_versioned_fc
 
@@ -334,39 +340,72 @@ class WeaverGDBUpdate(object):
         param11.value = "folioId"
 
         param12 = arcpy.Parameter(
+            displayName='Buildings Contact Name Field',
+            name='bldgs_folioId_name',
+            datatype='Field',
+            parameterType='Required',
+            direction='Input'
+        )
+        param12.parameterDependencies = [param06.name]
+        param12.filter.list = ['Text']
+        param12.value = "SSACARPropContact"
+
+        param13 = arcpy.Parameter(
             displayName='GDB Table ProjectName Field',
             name='gdb_table_project_name',
             datatype='Field',
             parameterType='Required',
             direction='Input'
         )
-        param12.parameterDependencies = [param08.name]
-        param12.filter.list = ['Text']
-        param12.value = "ProjectName"
+        param13.parameterDependencies = [param08.name]
+        param13.filter.list = ['Text']
+        param13.value = "ProjectName"
 
-        param13 = arcpy.Parameter(
+        param14 = arcpy.Parameter(
             displayName='GDB Table PhaseName Field',
             name='gdb_table_phase_name',
             datatype='Field',
             parameterType='Required',
             direction='Input'
         )
-        param13.parameterDependencies = [param08.name]
-        param13.filter.list = ['Text']
-        param13.value = "PhaseName"
+        param14.parameterDependencies = [param08.name]
+        param14.filter.list = ['Text']
+        param14.value = "PhaseName"
 
-        param14 = arcpy.Parameter(
+        param15 = arcpy.Parameter(
             displayName='GDB Table FolioNumber Field',
             name='gdb_table_folioNumber_name',
             datatype='Field',
             parameterType='Required',
             direction='Input'
         )
-        param14.parameterDependencies = [param08.name]
-        param14.filter.list = ['Text']
-        param14.value = "FolioNumber"
+        param15.parameterDependencies = [param08.name]
+        param15.filter.list = ['Text']
+        param15.value = "FolioNumber"
 
-        param15 = arcpy.Parameter(
+        param16 = arcpy.Parameter(
+            displayName='GDB Table First Name Field',
+            name='gdb_table_firstName',
+            datatype='Field',
+            parameterType='Required',
+            direction='Input'
+        )
+        param16.parameterDependencies = [param08.name]
+        param16.filter.list = ["Text"]
+        param16.value = "FirstName"
+
+        param17 = arcpy.Parameter(
+            displayName='GDB Table Last Name Field',
+            name='gdb_table_lastName',
+            datatype='Field',
+            parameterType='Required',
+            direction='Input'
+        )
+        param17.parameterDependencies = [param08.name]
+        param17.filter.list = ["Text"]
+        param17.value = "LastName"
+
+        param18 = arcpy.Parameter(
             displayName="Server Instance",
             name='server_instance',
             datatype='GPString',
@@ -375,11 +414,11 @@ class WeaverGDBUpdate(object):
         )
 
         if environ == "bcad":
-            param15.value = 'fllgissql01'
+            param18.value = 'fllgissql01'
         elif environ == "arora":
-            param15.value = r"sql-server-azure.database.windows.net"
+            param18.value = r"sql-server-azure.database.windows.net"
 
-        param16 = arcpy.Parameter(
+        param19 = arcpy.Parameter(
             displayName="Database Name",
             name='database_name',
             datatype='GPString',
@@ -388,15 +427,15 @@ class WeaverGDBUpdate(object):
         )
 
         if environ == "bcad":
-            param16.value = "GISAIRD"
+            param19.value = "GISAIRD"
         elif environ == "arora":
-            param16.value = "bcad_noise"
+            param19.value = "bcad_noise"
 
         params = [param0, param01,
                   param02, param03,
                   param04, param05, param06,
                   param07, param08, param09, param10, param11, param12, param13,
-                  param14, param15, param16]
+                  param14, param15, param16, param17, param18, param19]
 
         return params
 
@@ -423,8 +462,8 @@ class WeaverGDBUpdate(object):
         # These are the parameters defined by the user
         gis_gdb, table_db, os_auth, uid, pwd, p_version, bldgs, \
         sql_table, gdb_table, bldg_projectName, bldg_phaseName, \
-        bldg_folioId, gdb_table_projectName, gdb_table_phaseName, \
-        gdb_table_folioId, server_instance, database = params
+        bldg_folioId, bldg_contactName, gdb_table_projectName, gdb_table_phaseName, \
+        gdb_table_folioId, gdb_table_firstName, gdb_table_lastName, server_instance, database = params
 
         if gdb_table:
             gdb_table_name = arcpy.Describe(gdb_table).basename.split('.')[-1]
@@ -459,14 +498,23 @@ class WeaverGDBUpdate(object):
             opt["password"] = pwd
             opt["save_user_pass"] = "SAVE_USERNAME"
 
-        # attribute fields on the building feature class that need to be selected by the user
+        # attribute fields on the building feature class that match one-to-one with the field in the table
         building_attributes = {"Project Name": bldg_projectName,
                                "Phase Name": bldg_phaseName,
                                "Folio Number": bldg_folioId}
-        # attribute fields on the weaver geodatabase table that need to be selected by the user
+
+        # attribute fields on the weaver geodatabase table that match one-to-one with the field in the building
         table_attributes = {"Project Name": gdb_table_projectName,
                             "Phase Name": gdb_table_phaseName,
                             "Folio Number": gdb_table_folioId}
+
+        combination_attributes = [
+            {
+                "target": [bldg_folioId, bldg_contactName],
+                "source": [gdb_table_folioId, gdb_table_lastName, gdb_table_firstName]
+            }
+        ]
+
         # These variables are derived from the user parameters, but should be set in this function
         # to allow for importing into the unittests directly.
 
@@ -485,6 +533,7 @@ class WeaverGDBUpdate(object):
             "edit_version_name": edit_version_name,
             "building_attributes": building_attributes,
             "table_attributes": table_attributes,
+            "combination_attributes": combination_attributes,
             "opt": opt
         }
 
@@ -820,6 +869,13 @@ class CARsGDBUpdate(object):
                             "Phase Name": gdb_table_phaseName,
                             "Status": gdb_table_status,
                             "Folio Number": gdb_table_folioId}
+        # fields that are being combined should be listed here
+        # combination_attributes = [
+        #     {
+        #     "target": "",
+        #     "source": []
+        #     }
+        # ]
         # These variables are derived from the user parameters, but should be set in this function
         # to allow for importing into the unittests directly.
         final_parameters = {

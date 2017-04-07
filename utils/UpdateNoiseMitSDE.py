@@ -427,9 +427,9 @@ class GDBTableUpdater:
 
 
 class BuildingsUpdater:
-    """buildings, w_table, building_attributes, weaver_attributes,version_sde_file, editor"""
+    """buildings, w_table, building_attributes, weaver_attributes, version_sde_file, editor"""
 
-    def __init__(self, folioIds, bldgs, rel_table, bldg_atts, table_atts, version_sde, editor):
+    def __init__(self, folioIds, bldgs, rel_table, bldg_atts, table_atts, combination_atts, version_sde, editor):
         self.folioIds = folioIds
         self.buildings = bldgs
         self.rel_table = rel_table
@@ -437,6 +437,7 @@ class BuildingsUpdater:
         self.bldg_update_fields = bldg_atts
         self.table_folio = table_atts["Folio Number"]
         self.table_update_fields = table_atts
+        self.combination_fields = combination_atts
         self.version_sde = version_sde
         self.editor = editor
         self.folios = {}
@@ -449,6 +450,7 @@ class BuildingsUpdater:
                     # set the actual field as the key
                     props[self.table_update_fields[fld]] = []
             self.folios[x] = props
+        return self.folios
 
     def concat_list(self, _input):
         """take the input multivalue list and output a string"""
@@ -457,6 +459,129 @@ class BuildingsUpdater:
             _ph = list(set(_ph))
             _ph = ", ".join(_ph)
         return _ph
+
+    def perform_combination(self, sql_exp1, sql_exp2):
+        arcpy.AddMessage("BuildingUpdater.perform_combination()")
+        # read the source fields and place the value into the target field
+        try:
+            for x in self.combination_fields:
+                source_fields = x["source"]
+                values = dict()
+                n = 0
+                v = 0
+                with da.SearchCursor(self.rel_table, source_fields, sql_exp1) as cursor:
+                    for row in cursor:
+                        n += 1
+                        try:
+                            cleaned_row = clean_row(row)
+                            folio = cleaned_row[0]
+                            values[folio] = list()
+                            f1 = cleaned_row[1]
+                            f2 = cleaned_row[2]
+                            new_att = "{} {}".format(f1, f2)
+                            values[folio].append(new_att)
+                            v += 1
+                            del folio, f1, f2, new_att
+                        except Exception as e:
+                            arcpy.AddWarning(e)
+                arcpy.AddMessage("{} rows were scanned from the related table".format(n))
+                arcpy.AddMessage("{} names were added to the values dict".format(v))
+                arcpy.AddMessage("There are {} folioIds in the values dict".format(len(values.keys())))
+
+                target_fields = x["target"]
+                self.editor.startOperation()
+
+                num = 0
+                i = 0
+                n = 0
+                with da.UpdateCursor(self.buildings, target_fields, sql_exp2) as cursor:
+                    for row in cursor:
+                        cleaned_row = clean_row(row)
+                        folio = cleaned_row[0]
+                        num += 1
+                        try:
+                            new_row = [folio, ", ".join(values[folio])]
+                            if new_row != cleaned_row:
+                                try:
+                                    cursor.updateRow(new_row)
+                                    i += 1
+                                except Exception as e:
+                                    print(e)
+                            else:
+                                n += 1
+                        except KeyError:
+                            n += 1
+                            arcpy.AddMessage("folio {} was not found in the keys {}. "
+                                             "This can happend during testing when rows are not "
+                                             "inserted into the GDB table before testing the "
+                                             "Building Updater".format(folio, values.keys()))
+                        del folio
+
+                self.editor.stopOperation()
+                arcpy.AddMessage("{} rows were scanned for updating with Contact Name".format(num))
+                arcpy.AddMessage("{} buildings were updated with values".format(i))
+                arcpy.AddMessage("{} buildings were not updated".format(n))
+                del i, n
+        except RuntimeError as e:
+            print(e.message)
+            self.editor.stopOperation()
+            raise Exception(e)
+
+    def perform_one2one(self, sql_exp2):
+        arcpy.AddMessage("BuildingUpdater.perform_one2one()")
+        # The fields from the source are matched directly to fields in the target
+        try:
+            self.editor.startOperation()
+            building_fields = [self.bldg_folio]
+            # this adds the actual fields names rather than their label
+            building_fields.extend([v for k, v in self.bldg_update_fields.iteritems() if k != "Folio Number"])
+            i = 0
+            n = 0
+            num = 0
+            with da.UpdateCursor(self.buildings, building_fields, sql_exp2) as _cursor:
+                for _row in _cursor:
+                    num += 1
+                    cleaned_row = clean_row(_row)
+                    folio_id = cleaned_row[0]
+                    table_values = self.folios[folio_id]
+                    new_row = [folio_id]
+                    for x in building_fields[1:]:
+                        label = []
+                        for k, v in self.bldg_update_fields.iteritems():
+                            if v == x:
+                                label.append(k)
+                                break
+                        # use the label to get the list of values from the table collection
+
+                        t_field = []
+                        for k, v in self.table_update_fields.iteritems():
+                            if k == label[0]:
+                                t_field.append(v)
+
+                        new_value = self.concat_list(table_values[t_field[0]])
+                        new_row.append(new_value)
+                    if _row != new_row:
+                        try:
+                            _cursor.updateRow(new_row)
+                            i += 1
+                        except Exception as e:
+                            print(e)
+                    else:
+                        # the row has not changed
+                        arcpy.AddMessage("row {} has not changed".format(_row))
+                        n += 1
+                        pass
+
+            del _cursor
+            self.editor.stopOperation()
+            arcpy.AddMessage("{} rows were scanned for one-to-one mapping".format(num))
+            arcpy.AddMessage("{} buildings were updated with values".format(i))
+            arcpy.AddMessage("{} buildings were not updated".format(n))
+            del i, n
+        except RuntimeError as e:
+            print(e.message)
+            self.editor.stopOperation()
+            raise Exception(e)
 
     def update_buildings(self):
         arcpy.AddMessage("BuildingUpdater.update_buildings()")
@@ -497,54 +622,13 @@ class BuildingsUpdater:
             if len(keys) == 1:
                 sql_expression2 = "{} = '{}'".format(self.bldg_folio, keys[0])
             elif len(keys) > 1:
-                sql_expression2 = "{} in ('{}')".format(self.bldg_folio, "','".join(keys))
-            # iterate through the buildings with an SQL filter for the folioIds being updated;
+                sql_expression2 = "{} in ('{}')".format(self.bldg_folio, "', '".join(keys))
 
             arcpy.AddMessage("The buildings are now being updated")
-            i = 0
-            try:
-                self.editor.startOperation()
-                building_fields = [self.bldg_folio]
-                # this adds the actual fields names rather than their label
-                building_fields.extend([v for k, v in self.bldg_update_fields.iteritems() if k != "Folio Number"])
-                with da.UpdateCursor(self.buildings, building_fields, sql_expression2) as _cursor:
-                    for _row in _cursor:
-                        cleaned_row = clean_row(_row)
-                        folio_id = cleaned_row[0]
-                        table_values = self.folios[folio_id]
-                        new_row = [folio_id]
-                        for x in building_fields[1:]:
-                            label = []
-                            for k, v in self.bldg_update_fields.iteritems():
-                                if v == x:
-                                    label.append(k)
-                                    break
-                            # use the label to get the list of values from the table collection
-                            t_field = []
-                            for k, v in self.table_update_fields.iteritems():
-                                if k == label[0]:
-                                    t_field.append(v)
 
-                            new_value = self.concat_list(table_values[t_field[0]])
-                            new_row.append(new_value)
-                        if _row != new_row:
-                            try:
-                                _cursor.updateRow(new_row)
-                                i += 1
-                            except Exception as e:
-                                print(e)
-                        else:
-                            # the row has not changed
-                            pass
-
-                del _cursor
-                self.editor.stopOperation()
-                arcpy.AddMessage("{} buildings were updated with values".format(i))
-
-            except RuntimeError as e:
-                print(e.message)
-                self.editor.stopOperation()
-                raise Exception(e)
+            self.perform_one2one(sql_expression2)
+            if self.combination_fields:
+                self.perform_combination(sql_exp1=sql_expression, sql_exp2=sql_expression2)
         else:
             arcpy.AddWarning("Buildings were not updated.")
         return self.editor
