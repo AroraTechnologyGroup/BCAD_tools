@@ -140,7 +140,8 @@ def execute_tool(tool, params):
             fields = [x for x in building_attributes.itervalues()]
             if combination_attributes:
                 for x in combination_attributes:
-                    fields.append(x["target"][1])
+                    fs = x["target"]
+                    fields.append(fs[1])
 
             cursor = da.SearchCursor(bldgs, fields,
                                      "{} in ('{}')".format(building_attributes["Folio Number"], "','".join(folioIds)))
@@ -152,12 +153,12 @@ def execute_tool(tool, params):
             del cursor
             return True
 
-        except:
+        except Exception as e:
             if editor:
                 editor.stopEditing(False)
                 del editor
             version_manager.clean_previous()
-            raise Exception("Edits were not saved, the NoiseMit Version has been removed")
+            raise Exception("Edits were not saved, the NoiseMit Version has been removed :: {}".format(e))
 
     except:
         exc_type, exc_value, exc_traceback = sys.exc_info()

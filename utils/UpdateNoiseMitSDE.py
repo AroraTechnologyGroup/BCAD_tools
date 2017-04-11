@@ -408,6 +408,7 @@ class GDBTableUpdater:
                 self.update_table()
 
             self.last_scanned_date()
+            return True
         except Exception as e:
             raise Exception(e.message)
 
@@ -506,21 +507,25 @@ class BuildingsUpdater:
                 num = 0
                 i = 0
                 n = 0
+                keys = values.keys()
                 with da.UpdateCursor(self.buildings, target_fields, sql_exp2) as cursor:
                     for row in cursor:
                         cleaned_row = clean_row(row)
                         folio = cleaned_row[0]
                         num += 1
                         try:
-                            new_row = [folio, ", ".join(values[folio])]
-                            if new_row != cleaned_row:
-                                try:
-                                    cursor.updateRow(new_row)
-                                    i += 1
-                                except Exception as e:
-                                    print(e)
+                            if folio in keys:
+                                new_row = [folio, ", ".join(values[folio])]
+                                if new_row != cleaned_row:
+                                    try:
+                                        cursor.updateRow(new_row)
+                                        i += 1
+                                    except Exception as e:
+                                        arcpy.AddWarning(e)
+                                else:
+                                    n += 1
                             else:
-                                n += 1
+                                arcpy.AddWarning("Folio {} not found in {}".format(folio, keys))
                         except KeyError:
                             n += 1
                             arcpy.AddMessage("folio {} was not found in the keys {}. "
@@ -597,49 +602,53 @@ class BuildingsUpdater:
 
     def update_buildings(self):
         arcpy.AddMessage("UpdateNoiseMitSDE.BuildingUpdater.update_buildings()")
-        # gather the building folio numbers as keys in a dict
+        try:
+            # gather the building folio numbers as keys in a dict
 
-        self.build_folio_dict()
-        # read the rows from the related table with an SQL filter for folioIds;
-        # add the field attributes to their list in the _folios dict
-        keys = self.folios.keys()
-        run = 0
+            self.build_folio_dict()
+            # read the rows from the related table with an SQL filter for folioIds;
+            # add the field attributes to their list in the _folios dict
+            keys = self.folios.keys()
+            run = 0
 
-        if len(keys) == 1:
-            sql_expression = "{} = '{}'".format(self.table_folio, keys[0])
-            run += 1
-        elif len(keys) > 1:
-            sql_expression = "{} in ('{}')".format(self.table_folio, u"', '".join(keys))
-            run += 1
-        else:
-            arcpy.AddMessage("keys: {}".format(len(keys)))
+            if len(keys) == 1:
+                sql_expression = "{} = '{}'".format(self.table_folio, keys[0])
+                run += 1
+            elif len(keys) > 1:
+                sql_expression = "{} in ('{}')".format(self.table_folio, u"', '".join(keys))
+                run += 1
+            else:
+                arcpy.AddMessage("keys: {}".format(len(keys)))
 
-        if run:
-            try:
+            if run:
                 table_fields = [self.table_folio]
                 # this adds the actual fields names rather than their label
                 table_fields.extend([v for k, v in self.table_update_fields.iteritems() if k != "Folio Number"])
                 with da.SearchCursor(self.rel_table, table_fields, sql_expression) as _cursor:
                     for _row in _cursor:
-                        cleaned_row = clean_row(_row)
-                        for x in self.folios[_row[0]].keys():
-                            # these keys are the attribute field names
-                            _index = table_fields.index(x)
-                            self.folios[_row[0]][x].append(cleaned_row[_index])
-                del _cursor
+                        try:
+                            cleaned_row = clean_row(_row)
+                            for x in self.folios[_row[0]].keys():
+                                # these keys are the attribute field names
+                                _index = table_fields.index(x)
+                                self.folios[_row[0]][x].append(cleaned_row[_index])
+                        except Exception as e:
+                            arcpy.AddWarning(e)
 
-            except RuntimeError as e:
-                print e.message
+                if len(keys) == 1:
+                    sql_expression2 = "{} = '{}'".format(self.bldg_folio, keys[0])
+                elif len(keys) > 1:
+                    sql_expression2 = "{} in ('{}')".format(self.bldg_folio, "', '".join(keys))
 
-            if len(keys) == 1:
-                sql_expression2 = "{} = '{}'".format(self.bldg_folio, keys[0])
-            elif len(keys) > 1:
-                sql_expression2 = "{} in ('{}')".format(self.bldg_folio, "', '".join(keys))
+                arcpy.AddMessage("The buildings are now being updated")
 
-            arcpy.AddMessage("The buildings are now being updated")
+                self.perform_one2one(sql_expression2)
+                if self.combination_fields:
+                    self.perform_combination(sql_exp1=sql_expression, sql_exp2=sql_expression2)
 
-            self.perform_one2one(sql_expression2)
-            if self.combination_fields:
-                self.perform_combination(sql_exp1=sql_expression, sql_exp2=sql_expression2)
-        else:
-            arcpy.AddWarning("Buildings were not updated.")
+            else:
+                arcpy.AddWarning("Buildings were not updated.")
+
+            return True
+        except Exception as e:
+            arcpy.AddError(e)
