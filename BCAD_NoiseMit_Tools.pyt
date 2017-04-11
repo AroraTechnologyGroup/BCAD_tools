@@ -549,9 +549,7 @@ class WeaverGDBUpdate(object):
         """The method calls classes defined in external files."""
         arcpy.AddMessage("WeaverGDBUpdate.execute()")
         params = self.processParameters(parameters=parameters)
-        arcpy.AcceptConnections(params["gis_gdb"], False)
         success = execute_tool(self, params)
-        arcpy.AcceptConnections(params["gis_gdb"], True)
         return success
 
 
