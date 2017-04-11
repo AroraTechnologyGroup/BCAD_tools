@@ -909,7 +909,6 @@ class CARsGDBUpdate(object):
         """The method calls classes defined in external files."""
         arcpy.AddMessage("BCAD_NoiseMit_Tools.CARsGDBUpdate.execute()")
         params = self.processParameters(parameters=parameters)
-        arcpy.AcceptConnections(params["gis_gdb"], False)
         success = execute_tool(self, params)
-        arcpy.AcceptConnections(params["gis_gdb"], True)
+
         return success
