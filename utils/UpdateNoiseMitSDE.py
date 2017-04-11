@@ -13,6 +13,7 @@ home_dir = os.path.dirname(os.path.abspath(__file__))
 
 
 def compare_tables(sql_table, gdb_table):
+    arcpy.AddMessage("UpdateNoiseMitSDE.compare_tables()")
     """Compare the fields between the tables to catch a schema change.
     List all of the rows in the source table, check for the existence of an existing row
     in the list of source rows.
@@ -65,7 +66,7 @@ def compare_tables(sql_table, gdb_table):
             folio_index.append(_match_fields.index("FolioNumber"))
 
         if len(new_fields):
-            raise Exception("A schema change is needed in the updated weaver table :: {}".format(new_fields))
+            raise Exception("A schema change is needed in the updated {} table :: {}".format(gdb_table, new_fields))
 
         if len(missing_fields):
             arcpy.AddMessage("These fields were not found in the source sql table :: {}".format(missing_fields))
@@ -82,7 +83,7 @@ def compare_tables(sql_table, gdb_table):
         with da.SearchCursor(gdb_table, _match_fields) as cursor:
             for row in cursor:
                 row = clean_row(row)
-                # the rows from the GDB table, are identical to any row in the list, remove that row from the list
+                # the rows from the GDB table, are identical to any row in the add row list, remove that row
                 if row in add_rows:
                     add_rows.remove(row)
                     pass
@@ -128,6 +129,7 @@ def compare_tables(sql_table, gdb_table):
 
 
 def print_connection_info(workspace):
+    arcpy.AddMessage("UpdateNoiseMitSDE.print_connection_info()")
     """print the connection properties of the workspace describe object"""
     x = arcpy.Describe(workspace)
     cp = x.connectionProperties
@@ -165,7 +167,7 @@ class SdeConnector:
         self.options = options
 
     def create_sde_connection(self):
-        arcpy.AddMessage("SdeConnection.create_sde_connection()")
+        arcpy.AddMessage("UpdateNoiseMitSDE.SdeConnector.create_sde_connection()")
         arcpy.AddMessage("out_folder: {}, connection_name: {}, platform: {}, instance: {}, options: {}".format(
             self.out_folder, self.connection_name, self.platform, self.instance, self.options))
         # delete the sde file if it exists
@@ -206,7 +208,7 @@ class VersionManager:
         pass
 
     def clean_previous(self):
-        arcpy.AddMessage("VersionManager.clean_previous()")
+        arcpy.AddMessage("UpdateNoiseMitSDE.VersionManager.clean_previous()")
         # remove previous version if it exists
         versions = []
         try:
@@ -237,7 +239,7 @@ class VersionManager:
         return True
 
     def connect_version(self):
-        arcpy.AddMessage("VersionManager.connect_version()")
+        arcpy.AddMessage("UpdateNoiseMitSDE.VersionManager.connect_version()")
         # create version to edit
         versions = da.ListVersions(self.target_sde)
 
@@ -280,7 +282,7 @@ class VersionManager:
             raise VersionException()
 
     def rec_post(self):
-        arcpy.AddMessage("VersionManager.rec_post()")
+        arcpy.AddMessage("UpdateNoiseMitSDE.VersionManager.rec_post()")
         try:
             # Block additional connections during rec/post
             env.workspace = self.version_sde
@@ -319,7 +321,7 @@ class GDBTableUpdater:
         pass
 
     def insert_rows(self):
-        arcpy.AddMessage("GDBTableUpdater.insert_rows()")
+        arcpy.AddMessage("UpdateNoiseMitSDE.GDBTableUpdater.insert_rows()")
         try:
             self.editor.startOperation()
             fields = []
@@ -350,8 +352,9 @@ class GDBTableUpdater:
             self.editor.stopOperation()
             raise Exception(h)
 
-    def delete_rows(self, folio_ids):
-        arcpy.AddMessage("GDBTableUpdater.delete_rows()")
+    def delete_rows(self):
+        arcpy.AddMessage("UpdateNoiseMitSDE.GDBTableUpdater.delete_rows()")
+        folio_ids = self.folioIds
         try:
             self.editor.startOperation()
             i = 0
@@ -380,13 +383,13 @@ class GDBTableUpdater:
             self.editor.stopOperation()
             raise Exception(e)
 
-    def update_table(self, folio_ids):
-        arcpy.AddMessage("GDBTableUpdater.update_table()")
+    def update_table(self):
+        arcpy.AddMessage("UpdateNoiseMitSDE.GDBTableUpdater.update_table()")
         try:
             # use the update cursor to remove the rem_rows
             deleted, added = 0, 0
             if len(self.remove_rows):
-                deleted = self.delete_rows(folio_ids)
+                deleted = self.delete_rows()
             if len(self.read_rows):
                 added = self.insert_rows()
             return [deleted, added]
@@ -395,24 +398,23 @@ class GDBTableUpdater:
             arcpy.AddError(e.message)
 
     def perform_update(self):
-        arcpy.AddMessage("GDBTableUpdater.perform_update()")
+        arcpy.AddMessage("UpdateNoiseMitSDE.GDBTableUpdater.perform_update()")
         try:
             # if the table is empty add all read_rows
             if not int(arcpy.GetCount_management(self.write_table).getOutput(0)):
                 self.insert_rows()
             else:
                 # use the folioIds to filter before updating
-                self.update_table(self.folioIds)
+                self.update_table()
 
             self.last_scanned_date()
-            return True
         except Exception as e:
-            arcpy.AddError(e.message)
+            raise Exception(e.message)
 
     def last_scanned_date(self):
+        arcpy.AddMessage("UpdateNoiseMitSDE.GDBTableUpdater.last_scanned_date()")
         try:
             self.editor.startOperation()
-            arcpy.AddMessage("GDBTableUpdater.last_scanned_date()")
             # attribute the last scanned date
             field = ["LastScannedDate"]
             with da.UpdateCursor(self.write_table, field) as cursor:
@@ -443,6 +445,7 @@ class BuildingsUpdater:
         self.folios = {}
 
     def build_folio_dict(self):
+        arcpy.AddMessage("UpdateNoiseMitSDE.BuildingsUpdater.build_folio_dict()")
         for x in self.folioIds:
             props = dict()
             for fld in self.table_update_fields.keys():
@@ -453,6 +456,7 @@ class BuildingsUpdater:
         return self.folios
 
     def concat_list(self, _input):
+        arcpy.AddMessage("UpdateNoiseMitSDE.BuildingsUpdater.concat_list()")
         """take the input multivalue list and output a string"""
         _ph = _input
         if type(_ph) == list:
@@ -461,11 +465,12 @@ class BuildingsUpdater:
         return _ph
 
     def perform_combination(self, sql_exp1, sql_exp2):
-        arcpy.AddMessage("BuildingUpdater.perform_combination()")
+        arcpy.AddMessage("UpdateNoiseMitSDE.BuildingUpdater.perform_combination()")
         # read the source fields and place the value into the target field
         try:
             for x in self.combination_fields:
                 source_fields = x["source"]
+                # source fields = [folio, lastname, firstname]
                 values = dict()
                 n = 0
                 v = 0
@@ -475,11 +480,17 @@ class BuildingsUpdater:
                         try:
                             cleaned_row = clean_row(row)
                             folio = cleaned_row[0]
-                            values[folio] = list()
                             f1 = cleaned_row[1]
                             f2 = cleaned_row[2]
-                            new_att = "{} {}".format(f1, f2)
-                            values[folio].append(new_att)
+                            if f1.upper() != f2.upper():
+                                new_att = "{}, {}".format(f1, f2)
+                            else:
+                                new_att = f1
+                            try:
+                                values[folio].append(new_att)
+                            except KeyError:
+                                values[folio] = [new_att]
+
                             v += 1
                             del folio, f1, f2, new_att
                         except Exception as e:
@@ -489,6 +500,7 @@ class BuildingsUpdater:
                 arcpy.AddMessage("There are {} folioIds in the values dict".format(len(values.keys())))
 
                 target_fields = x["target"]
+                # target_fields = [folioId, contactName]
                 self.editor.startOperation()
 
                 num = 0
@@ -528,7 +540,7 @@ class BuildingsUpdater:
             raise Exception(e)
 
     def perform_one2one(self, sql_exp2):
-        arcpy.AddMessage("BuildingUpdater.perform_one2one()")
+        arcpy.AddMessage("UpdateNoiseMitSDE.BuildingUpdater.perform_one2one()")
         # The fields from the source are matched directly to fields in the target
         try:
             self.editor.startOperation()
@@ -584,7 +596,7 @@ class BuildingsUpdater:
             raise Exception(e)
 
     def update_buildings(self):
-        arcpy.AddMessage("BuildingUpdater.update_buildings()")
+        arcpy.AddMessage("UpdateNoiseMitSDE.BuildingUpdater.update_buildings()")
         # gather the building folio numbers as keys in a dict
 
         self.build_folio_dict()
@@ -631,4 +643,3 @@ class BuildingsUpdater:
                 self.perform_combination(sql_exp1=sql_expression, sql_exp2=sql_expression2)
         else:
             arcpy.AddWarning("Buildings were not updated.")
-        return self.editor

@@ -49,6 +49,7 @@ class TestGDBTableUpdater(TestCase):
 
     def setUp(self):
         self.editor.startEditing()
+        # All of the tests use this updater which has write rows and remove rows determined by the compare tables function
         self.updater = Updater(weaver_attributes=self.weaver_attributes, folioIds=self.folio_ids, match_fields=self.match_fields, write_table=self.version_gdb_table, read_rows=self.add_rows,
                                remove_rows=self.exist_rows, version_sde=self.version_sde_file, editor=self.editor)
 
@@ -60,11 +61,11 @@ class TestGDBTableUpdater(TestCase):
     #         self.assertTrue(result)
 
     def test_delete_rows(self):
-        result = self.updater.delete_rows('504126191410')
+        # change this to a folio in to be removed
+        result = self.updater.delete_rows()
         if not len(self.updater.remove_rows):
-            self.assertFalse(result)
+            self.assertEquals(0, result)
         else:
-            # change this value to the number of rows expected to be deleted during the tests
             self.assertGreater(result, 0)
 
     def test_insert_rows(self):
@@ -72,11 +73,10 @@ class TestGDBTableUpdater(TestCase):
         if not len(self.updater.read_rows):
             self.assertEquals(0, result)
         else:
-            # change this value to the number of rows you expect to the inserted during the test
             self.assertEquals(len(self.updater.read_rows), result)
 
     def test_update_table(self):
-        result = self.updater.update_table('504126191410')
+        result = self.updater.update_table()
         if len(self.updater.read_rows) == len(self.updater.remove_rows):
             self.assertEqual(result[0], result[1])
         elif len(self.updater.read_rows) < len(self.updater.remove_rows):

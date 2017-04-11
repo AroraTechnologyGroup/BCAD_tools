@@ -69,7 +69,6 @@ class TestBuildingsUpdater(TestCase):
 
     def test_build_folio_dict(self):
         folios = self.updater.build_folio_dict()
-        self.assertTrue(folios)
         self.assertGreaterEqual(len(folios.keys()), 0)
 
     def test_update_buildings(self):

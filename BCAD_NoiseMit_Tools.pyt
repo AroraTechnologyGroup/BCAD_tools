@@ -14,11 +14,11 @@ env.overwriteOutput = 1
 home_dir = os.path.dirname(os.path.abspath(__file__))
 
 environ = "arora"
-version = 'v1.1'
+version = 'v1.2'
 
 
 def get_versioned_fc(workspace, name):
-    arcpy.AddMessage("WeaverGDBUpdate.get_versioned_fc()")
+    arcpy.AddMessage("BCAD_NoiseMit_Tools.get_versioned_fc()")
     env.workspace = workspace
     noisemit = arcpy.ListDatasets("*Noise*")[0]
     dataset_path = os.path.join(env.workspace, noisemit)
@@ -33,6 +33,7 @@ def get_versioned_fc(workspace, name):
 
 
 def execute_tool(tool, params):
+    arcpy.AddMessage("BCAD_NoiseMit_Tools.execute_tool()")
     connection_folder = params["connection_folder"]
     platform = params["platform"]
     instance = params["instance"]
@@ -93,65 +94,70 @@ def execute_tool(tool, params):
 
                 if arcpy.Exists(gdb_table):
                     # should return True when editing is complete
-                    table_updated = table_updater.perform_update()
+                    try:
+                        table_updater.perform_update()
 
-                    # create BuildingUpdater class object
-                    version_buildings = tool.get_versioned_fc(version_sde_file, buildings_name)
-                    if arcpy.Exists(version_buildings):
-                        try:
-                            building_updater = BuildingsUpdater(folioIds, version_buildings, gdb_table, building_attributes,
-                                                                table_attributes, combination_attributes, version_sde_file, editor)
+                        # create BuildingUpdater class object
+                        version_buildings = tool.get_versioned_fc(version_sde_file, buildings_name)
+                        if arcpy.Exists(version_buildings):
+                            try:
+                                building_updater = BuildingsUpdater(folioIds, version_buildings, gdb_table, building_attributes,
+                                                                    table_attributes, combination_attributes, version_sde_file, editor)
 
-                            # should return True when editing it complete
-                            buildings_updated = building_updater.update_buildings()
-                            editor.stopEditing(True)
-                        except Exception as e:
-                            editor.stopEditing(False)
-                            del editor
-                            arcpy.AddError("Exception occured during buildings updates, edits have not been saved :: {}" \
-                                           ":: {}".format(e.message, traceback.print_exc()))
-                    else:
-                        editor.stopEditing(False)
-                        del editor
-                        arcpy.AddError("Unable to determine the buildings feature class\
-                                               using the version connection")
+                                building_updater.update_buildings()
+                                editor.stopEditing(True)
+                            except Exception as e:
+                                raise Exception("Exception occured during buildings updates, edits have not been saved :: {}" \
+                                               ":: {}".format(e.message, traceback.print_exc()))
+                        else:
+                            raise Exception("Unable to locate the buildings feature class")
+                    except:
+                        raise Exception("Error during GDB Table update")
                 else:
-                    editor.stopEditing(False)
-                    del editor
-                    arcpy.AddError("Unable to determine the gdb table\
-                                            using the version connection")
+                    raise Exception("Unable to determine the gdb table using the version connection")
             else:
                 arcpy.AddMessage("The files are identical, apply the last scanned date")
                 # This is important to add the datetime that the script was last run
                 table_updater.last_scanned_date()
                 editor.stopEditing(True)
+                del editor
 
             try:
                 version_manager.rec_post()
-                version_manager.clean_previous()
-                del version_manager
-
-                # Verify that the edits where posted
-                # TODO- determine failproof methods for isolating the changed features and viewing the change
-                env.workspace = sde_file
-                fields = [x for x in building_attributes.itervalues()]
-                cursor = da.SearchCursor(bldgs, fields,
-                                         "{} in ('{}')".format(building_attributes["Folio Number"], "','".join(folioIds)))
-                try:
-                    values = cursor.next()
-                    arcpy.AddMessage("This is an edited row in the buildings table :: {}".format(values))
-                except StopIteration:
-                    arcpy.AddMessage("No buildings found with folioIDs in {}".format(folioIds))
-                del cursor
             except Exception as e:
                 arcpy.AddError("Exception occurred during the rec/post operation, " +
                                "the edits were saved in the version however the version will be removed without the " +
-                               "edits having been posted to the default version :: {} :: {}".format(e.message,
-                                                                                                    traceback.print_exc()))
+                               "edits having been posted to the default version :: {} :: {}".format(e.message, traceback.print_exc()))
+            try:
+                version_manager.clean_previous()
+                del version_manager
+            except:
+                arcpy.AddError("Changed were saved and posted.  However, the edit version was not removed")
+
+            # Verify that the edits where posted
+            # TODO- determine failproof methods for isolating the changed features and viewing the change
+            env.workspace = sde_file
+            fields = [x for x in building_attributes.itervalues()]
+            if combination_attributes:
+                for x in combination_attributes:
+                    fields.append(x["target"][1])
+
+            cursor = da.SearchCursor(bldgs, fields,
+                                     "{} in ('{}')".format(building_attributes["Folio Number"], "','".join(folioIds)))
+            try:
+                values = cursor.next()
+                arcpy.AddMessage("This is an edited row in the buildings table :: {}".format(values))
+            except StopIteration:
+                arcpy.AddMessage("No buildings found with folioIDs in {}".format(folioIds))
+            del cursor
             return True
+
         except:
-            editor.stopEditing(False)
+            if editor:
+                editor.stopEditing(False)
+                del editor
             version_manager.clean_previous()
+            raise Exception("Edits were not saved, the NoiseMit Version has been removed")
 
     except:
         exc_type, exc_value, exc_traceback = sys.exc_info()
@@ -543,7 +549,10 @@ class WeaverGDBUpdate(object):
         """The method calls classes defined in external files."""
         arcpy.AddMessage("WeaverGDBUpdate.execute()")
         params = self.processParameters(parameters=parameters)
-        execute_tool(self, params)
+        arcpy.AcceptConnections(params["gis_gdb"], False)
+        success = execute_tool(self, params)
+        arcpy.AcceptConnections(params["gis_gdb"], True)
+        return success
 
 
 class CARsGDBUpdate(object):
@@ -817,7 +826,7 @@ class CARsGDBUpdate(object):
         return
 
     def processParameters(self, parameters):
-        arcpy.AddMessage("CARsGDBUpdate.process_parameters()")
+        arcpy.AddMessage("BCAD_NoiseMit_Tools.CARsGDBUpdate.process_parameters()")
 
         params = [p.valueAsText for p in parameters]
         # These are the parameters defined by the user
@@ -900,7 +909,9 @@ class CARsGDBUpdate(object):
 
     def execute(self, parameters, message):
         """The method calls classes defined in external files."""
-        arcpy.AddMessage("CARsGDBUpdate.execute()")
+        arcpy.AddMessage("BCAD_NoiseMit_Tools.CARsGDBUpdate.execute()")
         params = self.processParameters(parameters=parameters)
-        execute_tool(self, params)
-
+        arcpy.AcceptConnections(params["gis_gdb"], False)
+        success = execute_tool(self, params)
+        arcpy.AcceptConnections(params["gis_gdb"], True)
+        return success
