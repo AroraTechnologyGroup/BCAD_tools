@@ -143,6 +143,8 @@ def clean_row(_row):
     for _x in _row:
         try:
             _x = _x.strip()
+            for a in ["!", "@", "#", "$", "%", "^", "&", "*", "(", ")"]:
+                _x = _x.replace(a, "")
         except AttributeError:
             pass
         cleaned_row.append(_x)
@@ -483,10 +485,20 @@ class BuildingsUpdater:
                             folio = cleaned_row[0]
                             f1 = cleaned_row[1]
                             f2 = cleaned_row[2]
-                            if f1.upper() != f2.upper():
-                                new_att = "{}, {}".format(f1, f2)
+                            if f1 and f2:
+                                f1 = f1.capitalize()
+                                f2 = f2.capitalize()
+                                if f1.upper() != f2.upper():
+                                    new_att = u"{}, {}".format(f1, f2)
+                                else:
+                                    new_att = u"{}".format(f1)
                             else:
-                                new_att = f1
+                                if f1:
+                                    new_att = u"{}".format(f1)
+                                elif f2:
+                                    new_att = u"{}".format(f2)
+                                else:
+                                    new_att = u""
                             try:
                                 values[folio].append(new_att)
                             except KeyError:
@@ -496,17 +508,21 @@ class BuildingsUpdater:
                             del folio, f1, f2, new_att
                         except Exception as e:
                             arcpy.AddWarning(e)
+                            
                 arcpy.AddMessage("{} rows were scanned from the related table".format(n))
                 arcpy.AddMessage("{} names were added to the values dict".format(v))
                 arcpy.AddMessage("There are {} folioIds in the values dict".format(len(values.keys())))
 
                 target_fields = x["target"]
+                arcpy.AddMessage("target_fields :: {}".format(target_fields))
+                arcpy.AddMessage("Buildings = {} , Fields = {}".format(self.buildings, [f.name for f in arcpy.ListFields(self.buildings)]))
                 # target_fields = [folioId, contactName]
                 self.editor.startOperation()
 
                 num = 0
                 i = 0
                 n = 0
+                error = 0
                 keys = values.keys()
                 with da.UpdateCursor(self.buildings, target_fields, sql_exp2) as cursor:
                     for row in cursor:
@@ -515,30 +531,37 @@ class BuildingsUpdater:
                         num += 1
                         try:
                             if folio in keys:
-                                new_row = [folio, ", ".join(values[folio])]
+                                contacts = list(set([x for x in values[folio] if x]))
+                                contact_str = u"; ".join(contacts)
+                                if len(contact_str) > 254:
+                                    contact_str = contact_str[:254]
+                                    indi = contact_str.rfind(";")
+                                    contact_str = contact_str[:indi]
+                                new_row = [folio, contact_str]
                                 if new_row != cleaned_row:
                                     try:
                                         cursor.updateRow(new_row)
+                                        arcpy.AddMessage("Good Row :: {}".format(new_row))
                                         i += 1
                                     except Exception as e:
-                                        arcpy.AddWarning(e)
+                                        arcpy.AddWarning("{} :: {}".format(e, new_row))
+                                        error += 1
                                 else:
                                     n += 1
                             else:
                                 arcpy.AddWarning("Folio {} not found in {}".format(folio, keys))
-                        except KeyError:
+                        except Exception as e:
                             n += 1
-                            arcpy.AddMessage("folio {} was not found in the keys {}. "
-                                             "This can happend during testing when rows are not "
-                                             "inserted into the GDB table before testing the "
-                                             "Building Updater".format(folio, values.keys()))
+                            arcpy.AddWarning(e)
                         del folio
 
-                self.editor.stopOperation()
+                
                 arcpy.AddMessage("{} rows were scanned for updating with Contact Name".format(num))
                 arcpy.AddMessage("{} buildings were updated with values".format(i))
                 arcpy.AddMessage("{} buildings were not updated".format(n))
-                del i, n
+                arcpy.AddMessage("{} errors occured".format(error))
+                self.editor.stopOperation()
+                del i, n, error, num
         except RuntimeError as e:
             print(e.message)
             self.editor.stopOperation()
