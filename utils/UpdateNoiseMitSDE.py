@@ -289,7 +289,8 @@ class VersionManager:
             # Block additional connections during rec/post
             env.workspace = self.version_sde
             logfile = os.path.join(home_dir, "logs\\NoiseMit_logfile.txt")
-
+            if os.path.exists(logfile):
+                os.remove(logfile)
             try:
                 # putting the version in a list is required for OS Auth versions
                 arcpy.ReconcileVersions_management(self.version_sde, "ALL_VERSIONS", u"{}".format(self.parent_version),
