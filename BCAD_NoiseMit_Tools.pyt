@@ -575,7 +575,7 @@ class CARsGDBUpdate(object):
         if environ == "bcad":
             param0.value = os.path.join(home_dir, 'DBConnections\\ad_gisair_dev.sde')
         elif environ == "arora":
-            param0.value = r"C:\Users\rhughes\AppData\Roaming\ESRI\Desktop10.4\ArcCatalog\bcad_noise.sde"
+            param0.value = os.path.join(home_dir, 'DBConnections\\dbo@bcad_noisemit_tables.sde')
 
         param01 = arcpy.Parameter(
             displayName='Table Storage Database',
@@ -589,7 +589,7 @@ class CARsGDBUpdate(object):
         if environ == "bcad":
             param01.value = os.path.join(home_dir, 'DBConnections\\ad_noisemit.sde')
         elif environ == "arora":
-            param01.value = r"C:\Users\rhughes\AppData\Roaming\ESRI\Desktop10.4\ArcCatalog\App_Tables.sde"
+            param01.value = os.path.join(home_dir, 'DBConnections\\dbo@bcad_noise.sde')
 
         param02 = arcpy.Parameter(
             displayName='Operating System Authentication',
@@ -602,7 +602,7 @@ class CARsGDBUpdate(object):
         if environ == "bcad":
             param02.value = True
         elif environ == "arora":
-            param02.value = False
+            param02.value = True
 
         # # username for the database user
         param03 = arcpy.Parameter(
@@ -616,7 +616,7 @@ class CARsGDBUpdate(object):
         if environ == "bcad":
             param03.value = ''
         elif environ == "arora":
-            param03.value = 'gissetup'
+            param03.value = ''
 
         # password for the database user
         param04 = arcpy.Parameter(
@@ -630,7 +630,7 @@ class CARsGDBUpdate(object):
         if environ == "bcad":
             param04.value = ''
         elif environ == "arora":
-            param04.value = 'AroraGIS123!'
+            param04.value = ''
 
         # variable for the parent version of the database
         param05 = arcpy.Parameter(
@@ -644,7 +644,7 @@ class CARsGDBUpdate(object):
         if environ == "bcad":
             param05.value = 'sde.DEFAULT'
         elif environ == "arora":
-            param05.value = 'dbo.DEFAULT'
+            param05.value = 'sde.DEFAULT'
 
         # name of building polygon feature class
         param06 = arcpy.Parameter(
@@ -672,7 +672,7 @@ class CARsGDBUpdate(object):
         if environ == "bcad":
             param07.value = r'\\FLLGISSQL01\GIS Staging\dbConnections\ad_noisemit.sde\NoiseMit.dbo.WeaverProgramStatus'
         elif environ == "arora":
-            param07.value = '{}\\App_Tables.dbo.WEAVERPROGRAMSTATUS_SUBSET'.format(param01.value)
+            param07.value = '{}\\App_Tables.dbo.WEAVERPROGRAMSTATUS'.format(param01.value)
 
         # GDB table which holds the weaver data from the sql table
         param08 = arcpy.Parameter(
@@ -787,7 +787,7 @@ class CARsGDBUpdate(object):
         if environ == "bcad":
             param17.value = 'fllgissql01'
         elif environ == "arora":
-            param17.value = r"sql-server-azure.database.windows.net"
+            param17.value = r"ARORALAPTOP50\SDESQLEXPRESS"
 
         param18 = arcpy.Parameter(
             displayName="Database Name",
