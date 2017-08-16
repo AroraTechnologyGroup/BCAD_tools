@@ -52,7 +52,9 @@ def compare_tables(sql_table, gdb_table):
         _match_fields.extend([f for f in target_keys if f in source_keys])
 
         # these attributes will differ between the tables and break the matching
-        remove_fields = [u"OBJECTID", u"DateStamp", u"LastScannedDate"]
+        remove_fields = [u"OBJECTID", u"DateStamp", u"LastScannedDate", u"Shape", u"Shape.STArea()",
+                         u"last_edited_date", u"last_edited_user", u"Shape.STLength()"]
+
         for x in remove_fields:
             if x in _match_fields:
                 _match_fields.remove(x)
@@ -83,7 +85,7 @@ def compare_tables(sql_table, gdb_table):
         with da.SearchCursor(gdb_table, _match_fields) as cursor:
             for row in cursor:
                 row = clean_row(row)
-                # the rows from the GDB table, are identical to any row in the add row list, remove that row
+                # if any of the rows from the GDB table are identical to a row in the add row list, remove that row from the add list
                 if row in add_rows:
                     add_rows.remove(row)
                     pass
