@@ -269,7 +269,7 @@ class WeaverGDBUpdate(object):
         if environ == "bcad":
             param05.value = 'sde.DEFAULT'
         elif environ == "arora":
-            param05.value = 'sde.DEFAULT'
+            param05.value = 'dbo.DEFAULT'
 
         # name of building polygon feature class
         param06 = arcpy.Parameter(
@@ -473,11 +473,11 @@ class WeaverGDBUpdate(object):
         gdb_table_folioId, gdb_table_firstName, gdb_table_lastName, server_instance, database = params
 
         if gdb_table:
-            gdb_table_name = arcpy.Describe(gdb_table).basename.split('.')[-1]
+            gdb_table_name = gdb_table.split('\\')[-1].split(".")[-1]
         else:
             gdb_table_name = "WeaverDataImport"
         if bldgs:
-            buildings_name = arcpy.Describe(bldgs).basename.split('.')[-1]
+            buildings_name = bldgs.split('\\')[-1].split(".")[-1]
         else:
             buildings_name = "NoiseBuilding"
 
@@ -644,7 +644,7 @@ class CARsGDBUpdate(object):
         if environ == "bcad":
             param05.value = 'sde.DEFAULT'
         elif environ == "arora":
-            param05.value = 'sde.DEFAULT'
+            param05.value = 'dbo.DEFAULT'
 
         # name of building polygon feature class
         param06 = arcpy.Parameter(
@@ -656,9 +656,9 @@ class CARsGDBUpdate(object):
         )
 
         if environ == "bcad":
-            param06.value = '{}\\GISAIRD.BCAD.Noise_Mitigation\\GISAIRD.BCAD.SSACARBuilding'.format(param0.value)
+            param06.value = r'{}\GISAIRD.BCAD.Noise_Mitigation\GISAIRD.BCAD.SSACARBuilding'.format(param0.value)
         elif environ == "arora":
-            param06.value = '{}\\bcad_noise.DBO.Noise_Mitigation\\bcad_noise.DBO.SSACARBuilding'.format(param0.value)
+            param06.value = r'{}\bcad_noise.DBO.Noise_Mitigation\bcad_noise.DBO.SSACARBuilding'.format(param0.value)
 
         # sql table used to update the geodatabase table
         param07 = arcpy.Parameter(
@@ -670,9 +670,9 @@ class CARsGDBUpdate(object):
         )
 
         if environ == "bcad":
-            param07.value = r'\\FLLGISSQL01\GIS Staging\dbConnections\ad_noisemit.sde\NoiseMit.dbo.WeaverProgramStatus'
+            param07.value = r'{}\NoiseMit.dbo.WeaverProgramStatus'.format(param01.value)
         elif environ == "arora":
-            param07.value = '{}\\bcad_noisemit_tables.DBO.WEAVERPROGRAMSTATUS'.format(param01.value)
+            param07.value = r'{}\bcad_noisemit_tables.DBO.WEAVERPROGRAMSTATUS'.format(param01.value)
 
         # GDB table which holds the weaver data from the sql table
         param08 = arcpy.Parameter(
@@ -684,9 +684,9 @@ class CARsGDBUpdate(object):
         )
 
         if environ == "bcad":
-            param08.value = r'\\FLLGISSQL01\GIS Staging\dbConnections\ad_gisair_dev.sde\GISAIRD.BCAD.SSACAR'
+            param08.value = r'{}\GISAIRD.BCAD.SSACAR'.format(param0.value)
         elif environ == "arora":
-            param08.value = r'{}\\bcad_noise.DBO.SSACAR'.format(param0.value)
+            param08.value = r'{}\bcad_noise.DBO.SSACAR'.format(param0.value)
 
         param09 = arcpy.Parameter(
             displayName='Property Contact Name',
@@ -835,11 +835,11 @@ class CARsGDBUpdate(object):
         gdb_table_folioId, server_instance, database = params
 
         if gdb_table:
-            gdb_table_name = arcpy.Describe(gdb_table).basename.split('.')[-1]
+            gdb_table_name = gdb_table.split("\\")[-1].split(".")[-1]
         else:
             gdb_table_name = "SSACAR"
         if bldgs:
-            buildings_name = arcpy.Describe(bldgs).basename.split('.')[-1]
+            buildings_name = bldgs.split('\\')[-1].split(".")[-1]
         else:
             buildings_name = "SSACARBuilding"
 

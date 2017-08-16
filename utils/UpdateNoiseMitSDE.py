@@ -25,7 +25,10 @@ def compare_tables(sql_table, gdb_table):
     try:
         # verify that the necessary tables exist
         for x in [sql_table, gdb_table]:
-            if not arcpy.Exists(x):
+            ingdb = "\\".join(x.split("\\")[:-1])
+            env.workspace = ingdb
+            table_name = x.split("\\")[-1]
+            if not arcpy.Exists(table_name):
                 arcpy.AddError("the target table and the gdb table are not found")
                 raise Exception()
             else:
@@ -463,11 +466,14 @@ class BuildingsUpdater:
 
     def concat_list(self, _input):
         arcpy.AddMessage("UpdateNoiseMitSDE.BuildingsUpdater.concat_list()")
-        """take the input multivalue list and output a string"""
+        """take the input multivalue list and output a string no longer than 30 characters"""
         _ph = _input
         if type(_ph) == list:
             _ph = list(set(_ph))
             _ph = ", ".join(_ph)
+
+        if len(_ph) > 30:
+            _ph = _ph[:26] + " ..."
         return _ph
 
     def perform_combination(self, sql_exp1, sql_exp2):
