@@ -60,113 +60,127 @@ def execute_tool(tool, params):
         ssa_car_status = params["ssa_car_status"]
 
     try:
+        # Fail the Tool if the Source tables are empty
+        env.workspace = table_db
+        tables = arcpy.ListTables()
+        for t in tables:
+            i = 0
+            with arcpy.da.SearchCursor(t, "OID@") as cursor:
+                for row in cursor:
+                    i += 1
+            if not i:
+                raise Exception("No rows exist in the source table {}".format(t))
 
-        # These values need to be removed when the user parameters are created
-        result = UpdateNoiseMitSDE.compare_tables(sql_table=sql_table,gdb_table=gdb_table)
-
-        compare_result = result["compare_result"]
-        folioIds = result["folioIds"]
-        match_fields = result["match_fields"]
-        add_rows = result["add_rows"]
-        exist_rows = result["exist_rows"]
-
-        # create VersionManager class object to create new version, connect to it,
-        # and create an sde connection file, set as current workspace
-
-        version_manager = VersionManager(opt, connection_folder, sde_file, edit_version_name, edit_connection_name,
-                                         platform, instance)
-        version_manager.clean_previous()
-        version_sde_file = version_manager.connect_version()
-
-        if os.path.exists(version_sde_file):
-            arcpy.AddMessage(version_sde_file)
-        else:
-            raise Exception("version_sde_file not created")
-
-        editor = da.Editor(version_sde_file)
-        editor.startEditing()
-        # ensure that editing is stopped following an exception
         try:
-            env.workspace = version_sde_file
-            gdb_table = arcpy.ListTables("*{}*".format(gdb_table_name))[0]
-            table_updater = GDBTableUpdater(ssa_car_status, table_attributes, folioIds, match_fields, gdb_table, add_rows, exist_rows,
-                                            version_sde_file, editor)
-            # compare result if True means that changes need to be made to the GDB Table and thus the Buildings
-            if compare_result:
-                arcpy.AddMessage({"# rows to add": len(add_rows),
-                                  "# rows to remove": len(exist_rows)})
 
-                if arcpy.Exists(gdb_table):
-                    # should return True when editing is complete
-                    try:
-                        table_updater.perform_update()
+            # These values need to be removed when the user parameters are created
+            result = UpdateNoiseMitSDE.compare_tables(sql_table=sql_table,gdb_table=gdb_table)
 
-                        # create BuildingUpdater class object
-                        version_buildings = tool.get_versioned_fc(version_sde_file, buildings_name)
-                        if arcpy.Exists(version_buildings):
-                            try:
-                                building_updater = BuildingsUpdater(max_string_length, folioIds, version_buildings, gdb_table, building_attributes,
-                                                                    table_attributes, combination_attributes, version_sde_file, editor)
+            compare_result = result["compare_result"]
+            folioIds = result["folioIds"]
+            match_fields = result["match_fields"]
+            add_rows = result["add_rows"]
+            exist_rows = result["exist_rows"]
 
-                                building_updater.update_buildings()
-                                editor.stopEditing(True)
-                            except Exception as e:
-                                raise Exception("Exception occured during buildings updates, edits have not been saved :: {}" \
-                                               ":: {}".format(e.message, traceback.print_exc()))
-                        else:
-                            raise Exception("Unable to locate the buildings feature class")
-                    except:
-                        raise Exception("Error during GDB Table update")
-                else:
-                    raise Exception("Unable to determine the gdb table using the version connection")
-            else:
-                arcpy.AddMessage("The files are identical, apply the last scanned date")
-                # This is important to add the datetime that the script was last run
-                table_updater.last_scanned_date()
-                editor.stopEditing(True)
-                del editor
+            # create VersionManager class object to create new version, connect to it,
+            # and create an sde connection file, set as current workspace
 
-            try:
-                version_manager.rec_post()
-            except Exception as e:
-                arcpy.AddError("Exception occurred during the rec/post operation, " +
-                               "the edits were saved in the version however the version will be removed without the " +
-                               "edits having been posted to the default version :: {} :: {}".format(e.message, traceback.print_exc()))
-            try:
-                version_manager.clean_previous()
-                del version_manager
-            except:
-                arcpy.AddError("Changed were saved and posted.  However, the edit version was not removed")
-
-            # Verify that the edits where posted
-            # TODO- determine failproof methods for isolating the changed features and viewing the change
-            env.workspace = sde_file
-            fields = [x for x in building_attributes.itervalues()]
-            if combination_attributes:
-                for x in combination_attributes:
-                    fs = x["target"]
-                    fields.append(fs[1])
-
-            cursor = da.SearchCursor(bldgs, fields,
-                                     "{} in ('{}')".format(building_attributes["Folio Number"], "','".join(folioIds)))
-            try:
-                values = cursor.next()
-                arcpy.AddMessage("This is an edited row in the buildings table :: {}".format(values))
-            except StopIteration:
-                arcpy.AddMessage("No buildings found with folioIDs in {}".format(folioIds))
-            del cursor
-            return True
-
-        except Exception as e:
-            if editor:
-                editor.stopEditing(False)
-                del editor
+            version_manager = VersionManager(opt, connection_folder, sde_file, edit_version_name, edit_connection_name,
+                                             platform, instance)
             version_manager.clean_previous()
-            raise Exception("Edits were not saved, the NoiseMit Version has been removed :: {}".format(e))
+            version_sde_file = version_manager.connect_version()
 
-    except:
-        exc_type, exc_value, exc_traceback = sys.exc_info()
-        arcpy.AddError(repr(traceback.format_exception(exc_type, exc_value, exc_traceback)))
+            if os.path.exists(version_sde_file):
+                arcpy.AddMessage(version_sde_file)
+            else:
+                raise Exception("version_sde_file not created")
+
+            editor = da.Editor(version_sde_file)
+            editor.startEditing()
+            # ensure that editing is stopped following an exception
+            try:
+                env.workspace = version_sde_file
+                gdb_table = arcpy.ListTables("*{}*".format(gdb_table_name))[0]
+                table_updater = GDBTableUpdater(ssa_car_status, table_attributes, folioIds, match_fields, gdb_table, add_rows, exist_rows,
+                                                version_sde_file, editor)
+                # compare result if True means that changes need to be made to the GDB Table and thus the Buildings
+                if compare_result:
+                    arcpy.AddMessage({"# rows to add": len(add_rows),
+                                      "# rows to remove": len(exist_rows)})
+
+                    if arcpy.Exists(gdb_table):
+                        # should return True when editing is complete
+                        try:
+                            table_updater.perform_update()
+
+                            # create BuildingUpdater class object
+                            version_buildings = tool.get_versioned_fc(version_sde_file, buildings_name)
+                            if arcpy.Exists(version_buildings):
+                                try:
+                                    building_updater = BuildingsUpdater(max_string_length, folioIds, version_buildings, gdb_table, building_attributes,
+                                                                        table_attributes, combination_attributes, version_sde_file, editor)
+
+                                    building_updater.update_buildings()
+                                    editor.stopEditing(True)
+                                except Exception as e:
+                                    raise Exception("Exception occured during buildings updates, edits have not been saved :: {}" \
+                                                   ":: {}".format(e.message, traceback.print_exc()))
+                            else:
+                                raise Exception("Unable to locate the buildings feature class")
+                        except:
+                            raise Exception("Error during GDB Table update")
+                    else:
+                        raise Exception("Unable to determine the gdb table using the version connection")
+                else:
+                    arcpy.AddMessage("The files are identical, apply the last scanned date")
+                    # This is important to add the datetime that the script was last run
+                    table_updater.last_scanned_date()
+                    editor.stopEditing(True)
+                    del editor
+
+                try:
+                    version_manager.rec_post()
+                except Exception as e:
+                    arcpy.AddError("Exception occurred during the rec/post operation, " +
+                                   "the edits were saved in the version however the version will be removed without the " +
+                                   "edits having been posted to the default version :: {} :: {}".format(e.message, traceback.print_exc()))
+                try:
+                    version_manager.clean_previous()
+                    del version_manager
+                except:
+                    arcpy.AddError("Changed were saved and posted.  However, the edit version was not removed")
+
+                # Verify that the edits where posted
+                # TODO- determine failproof methods for isolating the changed features and viewing the change
+                env.workspace = sde_file
+                fields = [x for x in building_attributes.itervalues()]
+                if combination_attributes:
+                    for x in combination_attributes:
+                        fs = x["target"]
+                        fields.append(fs[1])
+
+                cursor = da.SearchCursor(bldgs, fields,
+                                         "{} in ('{}')".format(building_attributes["Folio Number"], "','".join(folioIds)))
+                try:
+                    values = cursor.next()
+                    arcpy.AddMessage("This is an edited row in the buildings table :: {}".format(values))
+                except StopIteration:
+                    arcpy.AddMessage("No buildings found with folioIDs in {}".format(folioIds))
+                del cursor
+                return True
+
+            except Exception as e:
+                if editor:
+                    editor.stopEditing(False)
+                    del editor
+                version_manager.clean_previous()
+                raise Exception("Edits were not saved, the NoiseMit Version has been removed :: {}".format(e))
+
+        except:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            arcpy.AddError(repr(traceback.format_exception(exc_type, exc_value, exc_traceback)))
+    except Exception as e:
+        arcpy.AddError(e)
 
 
 class Toolbox(object):
