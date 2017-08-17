@@ -14,7 +14,7 @@ class TestClean_row(TestCase):
         test_row = ["   ", None, "  apple", "tree  "]
         row = Code.clean_row(test_row)
         print row
-        self.assertListEqual(["", None, "apple", "tree"], row)
+        self.assertListEqual(["", "", "apple", "tree"], row)
 
 
 class TestCompare_tables(TestCase):

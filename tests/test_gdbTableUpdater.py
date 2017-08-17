@@ -22,6 +22,7 @@ class TestGDBTableUpdater(TestCase):
         out_n = params["edit_connection_name"]
         plat = params["platform"]
         inst = params["instance"]
+
         cls.weaver_attributes = params["table_attributes"]
 
         edit_version_name = params["edit_version_name"]
@@ -47,10 +48,15 @@ class TestGDBTableUpdater(TestCase):
         cls.editor = da.Editor(cls.version_sde_file)
         cls.version_gdb_table = arcpy.ListTables("*{}*".format(gdb_table_name))[0]
 
+        if 'ssa_car_status' in params.keys():
+            cls.ssa_car_status = params["ssa_car_status"]
+        else:
+            cls.ssa_car_status = None
+
     def setUp(self):
         self.editor.startEditing()
         # All of the tests use this updater which has write rows and remove rows determined by the compare tables function
-        self.updater = Updater(weaver_attributes=self.weaver_attributes, folioIds=self.folio_ids, match_fields=self.match_fields, write_table=self.version_gdb_table, read_rows=self.add_rows,
+        self.updater = Updater(ssa_car_status=self.ssa_car_status, weaver_attributes=self.weaver_attributes, folioIds=self.folio_ids, match_fields=self.match_fields, write_table=self.version_gdb_table, read_rows=self.add_rows,
                                remove_rows=self.exist_rows, version_sde=self.version_sde_file, editor=self.editor)
 
     # def test_count_pid(self):

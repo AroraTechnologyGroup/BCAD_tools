@@ -6,7 +6,7 @@ from arcpy import da
 from arcpy import env
 import traceback
 import datetime
-
+from collections import Counter
 env.overwriteOutput = 1
 
 home_dir = os.path.dirname(os.path.abspath(__file__))
@@ -77,25 +77,35 @@ def compare_tables(sql_table, gdb_table):
             arcpy.AddMessage("These fields were not found in the source sql table :: {}".format(missing_fields))
 
         # Add all of the rows from the weaver sql table to a list
-        add_rows = []
+        add_strings = []
         with da.SearchCursor(sql_table, _match_fields) as cursor:
             for row in cursor:
                 row = clean_row(row)
-                add_rows.append(row)
+                row_string = u",".join(row)
+                add_strings.append(row_string)
         del cursor
+        # Remove any duplicate rows from the source table
+        cnt = Counter(add_strings)
+        add_strings = list(cnt)
 
-        rem_rows = []
+        rem_strings = []
         with da.SearchCursor(gdb_table, _match_fields) as cursor:
             for row in cursor:
                 row = clean_row(row)
-                # if any of the rows from the GDB table are identical to a row in the add row list, remove that row from the add list
-                if row in add_rows:
-                    add_rows.remove(row)
+                row_string = u",".join(row)
+                if row_string in add_strings:
+                    add_strings.remove(row_string)
                     pass
                 # if the row is not in the add_rows, then add it to the exist_rows to remove
                 else:
-                    rem_rows.append(row)
+                    rem_strings.append(row_string)
         del cursor
+
+        cnt = Counter(rem_strings)
+        rem_strings = list(cnt)
+
+        rem_rows = [f.split(u",") for f in rem_strings]
+        add_rows = [f.split(u",") for f in add_strings]
 
         compare_result = 0
         folioId_dict = {
@@ -147,9 +157,14 @@ def clean_row(_row):
     cleaned_row = []
     for _x in _row:
         try:
-            _x = _x.strip()
-            for a in ["!", "@", "#", "$", "%", "^", "&", "*", "(", ")"]:
-                _x = _x.replace(a, "")
+            if _x is None:
+                _x = u""
+            else:
+                _x = unicode(_x).strip()
+                for a in ["!", "@", "#", "$", "%", "^", "&", "*", ","]:
+                    _x = _x.replace(a, u"-")
+                    _x = _x.strip()
+
         except AttributeError:
             pass
         cleaned_row.append(_x)
@@ -316,8 +331,9 @@ class VersionManager:
 class GDBTableUpdater:
     """match_fields, w_table, add_rows, rem_rows, version_sde_file, editor"""
 
-    def __init__(self, weaver_attributes, folioIds, match_fields, write_table, read_rows, remove_rows, version_sde,
+    def __init__(self, ssa_car_status, weaver_attributes, folioIds, match_fields, write_table, read_rows, remove_rows, version_sde,
                  editor):
+        self.ssa_car_status = ssa_car_status
         self.folio_field = weaver_attributes["Folio Number"]
         self.folioIds = folioIds
         self.match_fields = match_fields
@@ -440,7 +456,8 @@ class GDBTableUpdater:
 class BuildingsUpdater:
     """buildings, w_table, building_attributes, weaver_attributes, version_sde_file, editor"""
 
-    def __init__(self, folioIds, bldgs, rel_table, bldg_atts, table_atts, combination_atts, version_sde, editor):
+    def __init__(self, max_string_length, folioIds, bldgs, rel_table, bldg_atts, table_atts, combination_atts, version_sde, editor):
+        self.max_string_length = max_string_length
         self.folioIds = folioIds
         self.buildings = bldgs
         self.rel_table = rel_table
@@ -454,7 +471,7 @@ class BuildingsUpdater:
         self.folios = {}
 
     def build_folio_dict(self):
-        arcpy.AddMessage("UpdateNoiseMitSDE.BuildingsUpdater.build_folio_dict()")
+        arcpy.AddMessage("UpdateNoiseMitSDE.BuildingUpdater.build_folio_dict()")
         for x in self.folioIds:
             props = dict()
             for fld in self.table_update_fields.keys():
@@ -465,15 +482,16 @@ class BuildingsUpdater:
         return self.folios
 
     def concat_list(self, _input):
-        arcpy.AddMessage("UpdateNoiseMitSDE.BuildingsUpdater.concat_list()")
-        """take the input multivalue list and output a string no longer than 30 characters"""
+        #arcpy.AddMessage("UpdateNoiseMitSDE.BuildingsUpdater.concat_list()")
+        """take the input multivalue list and output a string no longer than the max string length parameter"""
+        max_length = int(self.max_string_length)
         _ph = _input
         if type(_ph) == list:
             _ph = list(set(_ph))
             _ph = ", ".join(_ph)
 
-        if len(_ph) > 30:
-            _ph = _ph[:26] + " ..."
+        if len(_ph) > max_length:
+            _ph = _ph[:(max_length-4)] + " ..."
         return _ph
 
     def perform_combination(self, sql_exp1, sql_exp2):
@@ -544,8 +562,6 @@ class BuildingsUpdater:
                                 contact_str = u"; ".join(contacts)
                                 if len(contact_str) > 254:
                                     contact_str = contact_str[:254]
-                                    indi = contact_str.rfind(";")
-                                    contact_str = contact_str[:indi]
                                 new_row = [folio, contact_str]
                                 if new_row != cleaned_row:
                                     try:
@@ -564,7 +580,6 @@ class BuildingsUpdater:
                             arcpy.AddWarning(e)
                         del folio
 
-                
                 arcpy.AddMessage("{} rows were scanned for updating with Contact Name".format(num))
                 arcpy.AddMessage("{} buildings were updated with values".format(i))
                 arcpy.AddMessage("{} buildings were not updated".format(n))
@@ -611,6 +626,7 @@ class BuildingsUpdater:
                         new_row.append(new_value)
                     if _row != new_row:
                         try:
+                            arcpy.AddMessage("This row was updated {}".format(new_row))
                             _cursor.updateRow(new_row)
                             i += 1
                         except Exception as e:
