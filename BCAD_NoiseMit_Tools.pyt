@@ -65,7 +65,7 @@ def execute_tool(tool, params):
         tables = arcpy.ListTables()
         for t in tables:
             i = 0
-            with arcpy.da.SearchCursor(t, "OID@") as cursor:
+            with arcpy.da.SearchCursor(t, "*") as cursor:
                 for row in cursor:
                     i += 1
             if not i:
