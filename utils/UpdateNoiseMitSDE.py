@@ -77,35 +77,24 @@ def compare_tables(sql_table, gdb_table):
             arcpy.AddMessage("These fields were not found in the source sql table :: {}".format(missing_fields))
 
         # Add all of the rows from the weaver sql table to a list
-        add_strings = []
+        add_rows = []
         with da.SearchCursor(sql_table, _match_fields) as cursor:
             for row in cursor:
                 row = clean_row(row)
-                row_string = u",".join(row)
-                add_strings.append(row_string)
+                add_rows.append(row)
         del cursor
-        # Remove any duplicate rows from the source table
-        cnt = Counter(add_strings)
-        add_strings = list(cnt)
 
-        rem_strings = []
+        rem_rows = []
         with da.SearchCursor(gdb_table, _match_fields) as cursor:
             for row in cursor:
                 row = clean_row(row)
-                row_string = u",".join(row)
-                if row_string in add_strings:
-                    add_strings.remove(row_string)
+                if row in add_rows:
+                    add_rows.remove(row)
                     pass
                 # if the row is not in the add_rows, then add it to the exist_rows to remove
                 else:
-                    rem_strings.append(row_string)
+                    rem_rows.append(row)
         del cursor
-
-        cnt = Counter(rem_strings)
-        rem_strings = list(cnt)
-
-        rem_rows = [f.split(u",") for f in rem_strings]
-        add_rows = [f.split(u",") for f in add_strings]
 
         compare_result = 0
         folioId_dict = {
@@ -159,6 +148,8 @@ def clean_row(_row):
         try:
             if _x is None:
                 _x = u""
+            elif isinstance(_x, datetime.datetime):
+                _x = _x
             else:
                 _x = unicode(_x).strip()
                 for a in ["!", "@", "#", "$", "%", "^", "&", "*", ","]:
@@ -374,7 +365,7 @@ class GDBTableUpdater:
         except Exception as h:
             print h.message
             self.editor.stopOperation()
-            raise Exception(h)
+            # raise Exception(h)
 
     def delete_rows(self):
         arcpy.AddMessage("UpdateNoiseMitSDE.GDBTableUpdater.delete_rows()")
@@ -456,8 +447,7 @@ class GDBTableUpdater:
 class BuildingsUpdater:
     """buildings, w_table, building_attributes, weaver_attributes, version_sde_file, editor"""
 
-    def __init__(self, max_string_length, folioIds, bldgs, rel_table, bldg_atts, table_atts, combination_atts, version_sde, editor):
-        self.max_string_length = max_string_length
+    def __init__(self, folioIds, bldgs, rel_table, bldg_atts, table_atts, combination_atts, version_sde, editor):
         self.folioIds = folioIds
         self.buildings = bldgs
         self.rel_table = rel_table
@@ -481,10 +471,9 @@ class BuildingsUpdater:
             self.folios[x] = props
         return self.folios
 
-    def concat_list(self, _input):
-        #arcpy.AddMessage("UpdateNoiseMitSDE.BuildingsUpdater.concat_list()")
+    def concat_list(self, _length, _input):
         """take the input multivalue list and output a string no longer than the max string length parameter"""
-        max_length = int(self.max_string_length)
+        max_length = _length
         _ph = _input
         if type(_ph) == list:
             _ph = list(set(_ph))
@@ -551,6 +540,14 @@ class BuildingsUpdater:
                 n = 0
                 error = 0
                 keys = values.keys()
+
+                # get the length of each field and shorten text as needed
+                field_lengths = {}
+                for x in target_fields:
+                    fld = arcpy.ListFields(self.buildings, x)[0]
+                    if fld.type == "String":
+                        field_lengths[x] = fld.length
+
                 with da.UpdateCursor(self.buildings, target_fields, sql_exp2) as cursor:
                     for row in cursor:
                         cleaned_row = clean_row(row)
@@ -558,10 +555,12 @@ class BuildingsUpdater:
                         num += 1
                         try:
                             if folio in keys:
+                                # row[1] is the field length to test
+                                max_length = field_lengths[target_fields[1]]
                                 contacts = list(set([x for x in values[folio] if x]))
                                 contact_str = u"; ".join(contacts)
-                                if len(contact_str) > 254:
-                                    contact_str = contact_str[:254]
+                                if len(contact_str) > max_length:
+                                    contact_str = contact_str[:max_length]
                                 new_row = [folio, contact_str]
                                 if new_row != cleaned_row:
                                     try:
@@ -595,13 +594,19 @@ class BuildingsUpdater:
         arcpy.AddMessage("UpdateNoiseMitSDE.BuildingUpdater.perform_one2one()")
         # The fields from the source are matched directly to fields in the target
         try:
-            self.editor.startOperation()
             building_fields = [self.bldg_folio]
             # this adds the actual fields names rather than their label
             building_fields.extend([v for k, v in self.bldg_update_fields.iteritems() if k != "Folio Number"])
             i = 0
             n = 0
             num = 0
+            length_lookup = dict()
+            for x in building_fields[1:]:
+                field = arcpy.ListFields(self.buildings, '*{}'.format(x))[0]
+                if field.type == "String":
+                    length_lookup[x] = field.length
+
+            self.editor.startOperation()
             with da.UpdateCursor(self.buildings, building_fields, sql_exp2) as _cursor:
                 for _row in _cursor:
                     num += 1
@@ -615,14 +620,16 @@ class BuildingsUpdater:
                             if v == x:
                                 label.append(k)
                                 break
-                        # use the label to get the list of values from the table collection
-
                         t_field = []
                         for k, v in self.table_update_fields.iteritems():
                             if k == label[0]:
                                 t_field.append(v)
+                        try:
+                            max_length = length_lookup[x]
+                            new_value = self.concat_list(max_length, table_values[t_field[0]])
+                        except KeyError:
+                            new_value = x
 
-                        new_value = self.concat_list(table_values[t_field[0]])
                         new_row.append(new_value)
                     if _row != new_row:
                         try:

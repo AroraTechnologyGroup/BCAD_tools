@@ -46,13 +46,12 @@ class TestBuildingsUpdater(TestCase):
         table_atts = self.params["table_attributes"]
         bldg_atts = self.params["building_attributes"]
         comb_atts = self.params["combination_attributes"]
-        max_string_length = self.params["max_string_length"]
 
         bldgs = self.versioned_buildings
         result = Tool.compare_tables(sql_table=SQL_Table, gdb_table=GDB_Table)
         folioIds = result["folioIds"]
         # folioIds, bldgs, rel_table, bldg_atts, weav_atts, version_sde, editor
-        self.updater = Updater(max_string_length=max_string_length, folioIds=folioIds, bldgs=bldgs, rel_table=GDB_Table, bldg_atts=bldg_atts,
+        self.updater = Updater(folioIds=folioIds, bldgs=bldgs, rel_table=GDB_Table, bldg_atts=bldg_atts,
                                table_atts=table_atts, combination_atts=comb_atts, version_sde=self.version_sde, editor=self.edit)
 
     def tearDown(self):
@@ -82,6 +81,7 @@ class TestBuildingsUpdater(TestCase):
 def suite():
     x = unittest.TestLoader().loadTestsFromTestCase(TestBuildingsUpdater)
     return unittest.TestSuite(x)
+
 
 if __name__ == '__main__':
     unittest.main()

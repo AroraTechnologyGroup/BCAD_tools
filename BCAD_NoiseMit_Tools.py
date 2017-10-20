@@ -14,7 +14,7 @@ env.overwriteOutput = 1
 home_dir = os.path.dirname(os.path.abspath(__file__))
 
 environ = "arora"
-version = 'v1.3'
+version = 'v1.4'
 
 
 def get_versioned_fc(workspace, name):
@@ -27,8 +27,7 @@ def get_versioned_fc(workspace, name):
     if len(fcs) == 1:
         fc = fcs.pop()
         if arcpy.Exists(fc):
-            env.workspace = workspace
-            fc_path = os.path.join(noisemit, fc)
+            fc_path = os.path.join(dataset_path, fc)
             return fc_path
 
 
@@ -49,7 +48,6 @@ def execute_tool(tool, params):
     building_attributes = params["building_attributes"]
     table_attributes = params["table_attributes"]
     opt = params["opt"]
-    max_string_length = params["max_string_length"]
     # check if fields are being combined during the update
     keys = params.keys()
     combination_attributes = None
@@ -101,6 +99,7 @@ def execute_tool(tool, params):
             try:
                 env.workspace = version_sde_file
                 gdb_table = arcpy.ListTables("*{}*".format(gdb_table_name))[0]
+                gdb_table = os.path.join(env.workspace, gdb_table)
                 table_updater = GDBTableUpdater(ssa_car_status, table_attributes, folioIds, match_fields, gdb_table, add_rows, exist_rows,
                                                 version_sde_file, editor)
                 # compare result if True means that changes need to be made to the GDB Table and thus the Buildings
@@ -117,7 +116,7 @@ def execute_tool(tool, params):
                             version_buildings = tool.get_versioned_fc(version_sde_file, buildings_name)
                             if arcpy.Exists(version_buildings):
                                 try:
-                                    building_updater = BuildingsUpdater(max_string_length, folioIds, version_buildings, gdb_table, building_attributes,
+                                    building_updater = BuildingsUpdater(folioIds, version_buildings, gdb_table, building_attributes,
                                                                         table_attributes, combination_attributes, version_sde_file, editor)
 
                                     building_updater.update_buildings()
@@ -456,21 +455,11 @@ class WeaverGDBUpdate(object):
         elif environ == "arora":
             param19.value = "bcad_noise"
 
-        param20 = arcpy.Parameter(
-            displayName='Max-Length of Combined Strings',
-            name='max_string_length',
-            datatype='GPDouble',
-            parameterType='Required',
-            direction='Input'
-        )
-
-        param20.value = 30
-
         params = [param0, param01,
                   param02, param03,
                   param04, param05, param06,
                   param07, param08, param09, param10, param11, param12, param13,
-                  param14, param15, param16, param17, param18, param19, param20]
+                  param14, param15, param16, param17, param18, param19]
 
         return params
 
@@ -499,7 +488,7 @@ class WeaverGDBUpdate(object):
         sql_table, gdb_table, bldg_projectName, bldg_phaseName,\
         bldg_folioId, bldg_contactName, gdb_table_projectName, gdb_table_phaseName, \
         gdb_table_folioId, gdb_table_firstName, gdb_table_lastName, server_instance,\
-        database, max_string_length = params
+        database = params
 
         if gdb_table:
             gdb_table_name = gdb_table.split('\\')[-1].split(".")[-1]
@@ -570,8 +559,7 @@ class WeaverGDBUpdate(object):
             "building_attributes": building_attributes,
             "table_attributes": table_attributes,
             "combination_attributes": combination_attributes,
-            "opt": opt,
-            "max_string_length": max_string_length
+            "opt": opt
         }
 
         return final_parameters
@@ -833,16 +821,6 @@ class CARsGDBUpdate(object):
             param18.value = "bcad_noise"
 
         param19 = arcpy.Parameter(
-            displayName='Max-Length of Combined Strings',
-            name='max_string_length',
-            datatype='GPDouble',
-            parameterType='Required',
-            direction='Input'
-        )
-
-        param19.value = 30
-
-        param20 = arcpy.Parameter(
             displayName='Acceptable Values for SSA CAR STATUS',
             name='ssa_status_types',
             datatype='GPSTRING',
@@ -850,18 +828,18 @@ class CARsGDBUpdate(object):
             parameterType='Required'
         )
 
-        param20.filter.type = "ValueList"
+        param19.filter.type = "ValueList"
 
-        param20.filter.list = ["Accepted CAR", "Closed", "Closed Parcels", "Closing Process", "Consent", "Deferred",
+        param19.filter.list = ["Accepted CAR", "Closed", "Closed Parcels", "Closing Process", "Consent", "Deferred",
                                "Ineligible", "Interested", "Non-Participating", "Request For Participation",
                                "Scheduled Closings"]
-        param20.value = param20.filter.list
+        param19.value = param19.filter.list
 
         params = [param0, param01,
                   param02, param03,
                   param04, param05, param06,
                   param07, param08, param09, param10, param11, param12, param13,
-                  param14, param15, param16, param17, param18, param19, param20]
+                  param14, param15, param16, param17, param18, param19]
         return params
 
     def isLicensed(self):
@@ -887,7 +865,7 @@ class CARsGDBUpdate(object):
         gis_gdb, table_db, os_auth, uid, pwd, p_version, bldgs, \
         sql_table, gdb_table, bldg_contactName, bldg_phaseName, bldg_status, \
         bldg_folioId, gdb_table_contactName, gdb_table_phaseName, gdb_table_status, \
-        gdb_table_folioId, server_instance, database, max_string_length, ssa_car_status = params
+        gdb_table_folioId, server_instance, database, ssa_car_status = params
 
         if gdb_table:
             gdb_table_name = gdb_table.split("\\")[-1].split(".")[-1]
@@ -957,7 +935,6 @@ class CARsGDBUpdate(object):
             "building_attributes": building_attributes,
             "table_attributes": table_attributes,
             "opt": opt,
-            "max_string_length": max_string_length,
             "ssa_car_status": ssa_car_status
         }
 

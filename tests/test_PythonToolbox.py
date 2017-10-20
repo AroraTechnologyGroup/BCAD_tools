@@ -13,7 +13,7 @@ class TestWeaverUpdate(TestCase):
     def test_processParameters(self):
         params = self.tool.getParameterInfo()
         final_params = self.tool.processParameters(params)
-        self.assertEquals(17, len(final_params.keys()))
+        self.assertEquals(16, len(final_params.keys()))
 
     def test_execute(self):
         params = self.tool.getParameterInfo()
@@ -31,7 +31,7 @@ class TestSSACARUpdate(TestCase):
     def test_processParameters(self):
         params = self.tool.getParameterInfo()
         final_params = self.tool.processParameters(params)
-        self.assertEquals(17, len(final_params.keys()))
+        self.assertEquals(16, len(final_params.keys()))
 
     def test_execute(self):
         params = self.tool.getParameterInfo()
@@ -43,6 +43,7 @@ def suite():
     x = unittest.TestLoader().loadTestsFromTestCase(TestWeaverUpdate)
     y = unittest.TestLoader().loadTestsFromTestCase(TestSSACARUpdate)
     return unittest.TestSuite([x, y])
+
 
 if __name__ == '__main__':
     unittest.main()
