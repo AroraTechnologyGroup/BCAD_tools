@@ -1,0 +1,30 @@
+{
+  "WeaverDataImport": {
+      "Phase Name": [
+        "deemed compatible",
+        "group a",
+        "group b",
+        "group c",
+        "group d",
+        "group efh revised",
+        "group efhij",
+        "group k",
+        "group l1",
+        "group l2",
+        "group m1",
+        "group m2",
+        "group n1",
+        "group n2"
+      ],
+      "Project Name": [
+        "completed construction",
+        "construction in process",
+        "declined/non-responsive",
+        "deemed compatible",
+        "design in process",
+        "not eligible",
+        "pending construction"
+      ]
+  },
+  "SSACAR": {}
+}

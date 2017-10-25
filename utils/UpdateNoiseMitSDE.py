@@ -7,9 +7,15 @@ from arcpy import env
 import traceback
 import datetime
 from collections import Counter
+import json
 env.overwriteOutput = 1
 
 home_dir = os.path.dirname(os.path.abspath(__file__))
+
+domain_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "domains.json")
+file = open(domain_file, 'r')
+domains = json.loads(file.read())
+file.close()
 
 
 def compare_tables(sql_table, gdb_table):
@@ -322,9 +328,8 @@ class VersionManager:
 class GDBTableUpdater:
     """match_fields, w_table, add_rows, rem_rows, version_sde_file, editor"""
 
-    def __init__(self, ssa_car_status, weaver_attributes, folioIds, match_fields, write_table, read_rows, remove_rows, version_sde,
+    def __init__(self, weaver_attributes, folioIds, match_fields, write_table, read_rows, remove_rows, version_sde,
                  editor):
-        self.ssa_car_status = ssa_car_status
         self.folio_field = weaver_attributes["Folio Number"]
         self.folioIds = folioIds
         self.match_fields = match_fields
@@ -447,7 +452,8 @@ class GDBTableUpdater:
 class BuildingsUpdater:
     """buildings, w_table, building_attributes, weaver_attributes, version_sde_file, editor"""
 
-    def __init__(self, folioIds, bldgs, rel_table, bldg_atts, table_atts, combination_atts, version_sde, editor):
+    def __init__(self, domains, folioIds, bldgs, rel_table, bldg_atts, table_atts, combination_atts, version_sde, editor):
+        self.domains = domains
         self.folioIds = folioIds
         self.buildings = bldgs
         self.rel_table = rel_table
@@ -593,6 +599,7 @@ class BuildingsUpdater:
     def perform_one2one(self, sql_exp2):
         arcpy.AddMessage("UpdateNoiseMitSDE.BuildingUpdater.perform_one2one()")
         # The fields from the source are matched directly to fields in the target
+        domain_set = self.domains
         try:
             building_fields = [self.bldg_folio]
             # this adds the actual fields names rather than their label
@@ -613,7 +620,9 @@ class BuildingsUpdater:
                     cleaned_row = clean_row(_row)
                     folio_id = cleaned_row[0]
                     table_values = self.folios[folio_id]
+
                     new_row = [folio_id]
+                    _index = 1
                     for x in building_fields[1:]:
                         label = []
                         for k, v in self.bldg_update_fields.iteritems():
@@ -626,11 +635,39 @@ class BuildingsUpdater:
                                 t_field.append(v)
                         try:
                             max_length = length_lookup[x]
-                            new_value = self.concat_list(max_length, table_values[t_field[0]])
+                            # get the table values for this field
+                            values = table_values[t_field[0]]
+                            # create a Counter object on the list of values
+                            cnt = Counter(values)
+
+                            if label[0] in domain_set.keys():
+                                # retrieve the domain value list
+                                value_list = domain_set[label[0]]
+
+                                # get the three most common values from the table_values list
+                                most_common = cnt.most_common(3)
+                                # starting with the most common value
+                                for c in most_common:
+                                    item = c[0]
+                                    # if it is a string value
+                                    if type(item) == unicode:
+                                        # check if it exists in the pick list
+                                        if item.lower().strip() in value_list:
+                                            # set the final list of values to the single most common string
+                                            values = [item]
+                                            break
+                                        else:
+                                            # remove all occurrences of this item from the value list
+                                            values = [v for v in values if v != item]
+                                    else:
+                                        pass
+                            new_value = self.concat_list(max_length, values)
                         except KeyError:
-                            new_value = x
+                            new_value = _row[_index]
 
                         new_row.append(new_value)
+                        _index += 1
+
                     if _row != new_row:
                         try:
                             arcpy.AddMessage("This row was updated {}".format(new_row))
@@ -640,7 +677,7 @@ class BuildingsUpdater:
                             print(e)
                     else:
                         # the row has not changed
-                        arcpy.AddMessage("row {} has not changed".format(_row))
+                        # arcpy.AddMessage("row {} has not changed".format(_row))
                         n += 1
                         pass
 
@@ -707,3 +744,27 @@ class BuildingsUpdater:
             return True
         except Exception as e:
             arcpy.AddError(e)
+
+
+class DomainEnforcer:
+    """If an attribute value does not exist in the provided values list, make the value NULL"""
+    def __init__(self, featureclass, fieldname, values, editor):
+        self.featureclass = featureclass
+        self.fieldname = fieldname
+        self.values = values
+        self.editor = editor
+
+    def execute(self):
+        values = [x.lower().strip() for x in self.values]
+        field = arcpy.ListFields(self.featureclass, "*{}".format(self.fieldname))[0]
+        self.editor.startOperation()
+        with da.UpdateCursor(self.featureclass, field.name) as cursor:
+            for row in cursor:
+                value = row[0].lower().strip()
+                new_row = []
+                if value not in values:
+                    new_row.append("")
+                else:
+                    new_row.append(row[0])
+                cursor.updateRow(new_row)
+        self.editor.stopOperation()

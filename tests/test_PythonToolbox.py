@@ -13,7 +13,7 @@ class TestWeaverUpdate(TestCase):
     def test_processParameters(self):
         params = self.tool.getParameterInfo()
         final_params = self.tool.processParameters(params)
-        self.assertEquals(16, len(final_params.keys()))
+        self.assertEquals(17, len(final_params.keys()))
 
     def test_execute(self):
         params = self.tool.getParameterInfo()
