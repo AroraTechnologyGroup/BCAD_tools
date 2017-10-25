@@ -744,27 +744,3 @@ class BuildingsUpdater:
             return True
         except Exception as e:
             arcpy.AddError(e)
-
-
-class DomainEnforcer:
-    """If an attribute value does not exist in the provided values list, make the value NULL"""
-    def __init__(self, featureclass, fieldname, values, editor):
-        self.featureclass = featureclass
-        self.fieldname = fieldname
-        self.values = values
-        self.editor = editor
-
-    def execute(self):
-        values = [x.lower().strip() for x in self.values]
-        field = arcpy.ListFields(self.featureclass, "*{}".format(self.fieldname))[0]
-        self.editor.startOperation()
-        with da.UpdateCursor(self.featureclass, field.name) as cursor:
-            for row in cursor:
-                value = row[0].lower().strip()
-                new_row = []
-                if value not in values:
-                    new_row.append("")
-                else:
-                    new_row.append(row[0])
-                cursor.updateRow(new_row)
-        self.editor.stopOperation()
