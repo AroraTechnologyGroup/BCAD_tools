@@ -33,7 +33,7 @@ class TestSdeConnector(TestCase):
         try:
             cls.params = None
         except:
-            print "unable to remove the sde file created during the test"
+            print("unable to remove the sde file created during the test")
 
     def test_create_sde_connection(self):
         params = self.params

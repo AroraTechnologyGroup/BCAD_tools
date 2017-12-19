@@ -1,6 +1,6 @@
 import unittest
 from unittest import TestCase
-from BCAD_NoiseMit_Tools import WeaverGDBUpdate, CARsGDBUpdate
+from BCAD_NoiseMit_Tools import WeaverGDBUpdate, CARsGDBUpdate, LeaseUpdate
 
 
 class TestWeaverUpdate(TestCase):
@@ -39,10 +39,24 @@ class TestSSACARUpdate(TestCase):
         self.assertTrue(result)
 
 
+class TestLeaseUpdate(TestCase):
+    def setUp(self):
+        self.tool = LeaseUpdate()
+
+    def tearDown(self):
+        self.tool = None
+
+    def test_execute(self):
+        params = self.tool.getParameterInfo()
+        result = self.tool.execute(params, '#')
+        self.assertTrue(result)
+
+
 def suite():
     x = unittest.TestLoader().loadTestsFromTestCase(TestWeaverUpdate)
     y = unittest.TestLoader().loadTestsFromTestCase(TestSSACARUpdate)
-    return unittest.TestSuite([x, y])
+    z = unittest.TestLoader().loadTestsFromTestCase(TestLeaseUpdate)
+    return unittest.TestSuite([x, y, z])
 
 
 if __name__ == '__main__':

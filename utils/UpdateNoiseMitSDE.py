@@ -50,8 +50,8 @@ def compare_tables(sql_table, gdb_table):
             target_fields[x.name] = x.type
 
         # The only missing field should be ObjectID because the sql table is not registered with the geodatabase
-        source_keys = source_fields.keys()
-        target_keys = target_fields.keys()
+        source_keys = list(source_fields.keys())
+        target_keys = list(target_fields.keys())
 
         new_fields = []
         new_fields.extend([f for f in source_keys if f not in target_keys])
@@ -111,29 +111,46 @@ def compare_tables(sql_table, gdb_table):
             compare_result += 1
             for x in add_rows:
                 try:
-                    folioId_dict["add"].append(x[folio_index[0]])
+                    # If folioIds are used, or some other ID, then use that to index the rows, other wise use the entire row
+                    if len(folio_index):
+                        folioId_dict["add"].append(x[folio_index[0]])
+                    else:
+                        folioId_dict["add"].append(x)
                 except IndexError:
                     pass
             for x in rem_rows:
                 try:
-                    folioId_dict["rem"].append(x[folio_index[0]])
+                    if len(folio_index):
+                        folioId_dict["rem"].append(x[folio_index[0]])
+                    else:
+                        folioId_dict["rem"].append(x)
                 except IndexError:
                     pass
 
         folioIds = []
-        folioIds.extend(folioId_dict["rem"])
-        folioIds.extend(folioId_dict["add"])
-        folioIds = list(set(folioIds))
+        if len(folio_index):
+            folioIds.extend(folioId_dict["rem"])
+            folioIds.extend(folioId_dict["add"])
+            folioIds = list(set(folioIds))
 
-        arcpy.AddMessage("{} folioIds will be updated in the weaver table".format(len(folioIds)))
-        arcpy.AddMessage("{} folios are flagged for removal".format(len(set(folioId_dict["rem"]))))
-        arcpy.AddMessage("{} folios are flagged for insert".format(len(set(folioId_dict["add"]))))
+        if len(folioIds):
+            arcpy.AddMessage("{} folioIds will be updated in the table".format(len(folioIds)))
+            arcpy.AddMessage("{} folios are flagged for removal".format(len(set(folioId_dict["rem"]))))
+            arcpy.AddMessage("{} folios are flagged for insert".format(len(set(folioId_dict["add"]))))
 
-        return {"match_fields": _match_fields,
-                "folioIds": folioIds,
-                "compare_result": compare_result,
-                "add_rows": add_rows,
-                "exist_rows": rem_rows}
+        else:
+            # folioIds are not used to look up records, the entire row is added as an item
+            arcpy.AddMessage("{} rows will be removed from the table".format(len(folioId_dict["rem"])))
+            arcpy.AddMessage("{} rows will be added to the table".format(len(folioId_dict["add"])))
+
+        return {
+            "match_fields": _match_fields,
+            "folioIds": folioIds,
+            "compare_result": compare_result,
+            "add_rows": add_rows,
+            "exist_rows": rem_rows
+        }
+
     except Exception as e:
         print(e)
 
@@ -157,7 +174,7 @@ def clean_row(_row):
             elif isinstance(_x, datetime.datetime):
                 _x = _x
             else:
-                _x = unicode(_x).strip()
+                _x = _x.strip()
                 for a in ["!", "@", "#", "$", "%", "^", "&", "*", ","]:
                     _x = _x.replace(a, u"-")
                     _x = _x.strip()
@@ -238,20 +255,16 @@ class VersionManager:
             raise VersionException(e.message)
 
         if len(versions):
+            new_vers = self.new_version
             v_names = [v.name for v in versions]
             last_names = [x.split(".")[-1] for x in v_names]
-            z = list(zip(last_names, v_names))
-            for v in z:
-                if v[0].lower() == "default":
-                    pass
-                elif self.new_version.lower() == v[0].lower():
-                    try:
-                        arcpy.DeleteVersion_management(self.target_sde, v[1])
-                    except Exception as e:
-                        arcpy.AddError(e.message)
-                else:
-                    logging.warning("""There are versions existing in the geodatabase
-                                     that may need to be removed:: {}""".format(v_names))
+            d = dict(list(zip(last_names, v_names)))
+            if new_vers in list(d.keys()):
+                try:
+                    arcpy.DeleteVersion_management(self.target_sde, d[new_vers])
+                except Exception as e:
+                    arcpy.AddError(e)
+
         else:
             logging.info("no versions found")
 
@@ -327,17 +340,19 @@ class VersionManager:
 
 class GDBTableUpdater:
     """match_fields, w_table, add_rows, rem_rows, version_sde_file, editor"""
-
-    def __init__(self, weaver_attributes, folioIds, match_fields, write_table, read_rows, remove_rows, version_sde,
-                 editor):
-        self.folio_field = weaver_attributes["Folio Number"]
-        self.folioIds = folioIds
+    """weaver_attributes and folioIds are optional arguments, for some of the tools"""
+    def __init__(self, match_fields, write_table, read_rows, remove_rows, version_sde,
+                 editor, weaver_attributes={}, folioIds=[]):
         self.match_fields = match_fields
         self.write_table = write_table
         self.read_rows = read_rows
         self.remove_rows = remove_rows
         self.version_sde = version_sde
         self.editor = editor
+        if weaver_attributes:
+            self.folio_field = weaver_attributes["Folio Number"]
+        if folioIds:
+            self.folioIds = folioIds
         pass
 
     def insert_rows(self):
@@ -355,9 +370,9 @@ class GDBTableUpdater:
                         insert.insertRow(_row)
                         i += 1
                     except Exception as e:
-                        arcpy.AddWarning(e.message)
+                        arcpy.AddWarning(e)
                 except Exception as e:
-                    arcpy.AddWarning(e.message)
+                    arcpy.AddWarning(e)
 
             del insert
             if not i:
@@ -368,19 +383,23 @@ class GDBTableUpdater:
             return i
 
         except Exception as h:
-            print h.message
+            print(h)
             self.editor.stopOperation()
             # raise Exception(h)
 
     def delete_rows(self):
         arcpy.AddMessage("UpdateNoiseMitSDE.GDBTableUpdater.delete_rows()")
-        folio_ids = self.folioIds
+        if self.folioIds:
+            folio_ids = self.folioIds
+            sql_query = "{} in ('{}')".format(self.folio_field, "','".join(folio_ids))
+        else:
+            sql_query = "%"
+
         try:
             self.editor.startOperation()
             i = 0
             rem_rows = self.remove_rows
-            with da.UpdateCursor(self.write_table, self.match_fields, "{} in ('{}')".format(
-                    self.folio_field, "','".join(folio_ids))) as _cursor:
+            with da.UpdateCursor(self.write_table, self.match_fields, sql_query) as _cursor:
                 for line in _cursor:
                     # delete all rows that are identical to an item in the input list
                     line = clean_row(line)
@@ -399,7 +418,7 @@ class GDBTableUpdater:
             return i
 
         except Exception as e:
-            print e.message
+            print(e)
             self.editor.stopOperation()
             raise Exception(e)
 
@@ -415,7 +434,7 @@ class GDBTableUpdater:
             return [deleted, added]
 
         except Exception as e:
-            arcpy.AddError(e.message)
+            arcpy.AddError(e)
 
     def perform_update(self):
         arcpy.AddMessage("UpdateNoiseMitSDE.GDBTableUpdater.perform_update()")
@@ -431,6 +450,26 @@ class GDBTableUpdater:
             return True
         except Exception as e:
             raise Exception(e.message)
+
+    def concatenate(self, join_field, first_field, second_field):
+        arcpy.AddMessage("UpdateNoiseMitSDE.GDBTableUpdater.concatenate()")
+        self.editor.startOperation()
+        d = False
+        try:
+            with da.UpdateCursor(self.write_table, [join_field, first_field, second_field]) as cursor:
+                for row in cursor:
+                    if row[1] and row[2]:
+                        conc = "{}-{}".format(row[1], row[2])
+                        new_row = [conc, row[1], row[2]]
+                        cursor.updateRow(new_row)
+            d = True
+        except Exception as e:
+            logging.error(e)
+            d = False
+
+        self.editor.stopOperation()
+        return d
+
 
     def last_scanned_date(self):
         arcpy.AddMessage("UpdateNoiseMitSDE.GDBTableUpdater.last_scanned_date()")

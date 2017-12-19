@@ -47,6 +47,9 @@ def execute_tool(tool, params):
     sql_table = params["sql_table"]
     gdb_table = params["gdb_table"]
     gdb_table_name = params["gdb_table_name"]
+    join_field = params["join_field"]
+    agreement_field = params["agreement_field"]
+    leasehold_field = params["leasehold_field"]
     buildings_name = params["buildings_name"]
     edit_connection_name = params["edit_connection_name"]
     edit_version_name = params["edit_version_name"]
@@ -76,8 +79,7 @@ def execute_tool(tool, params):
 
         try:
 
-            # These values need to be removed when the user parameters are created
-            result = UpdateNoiseMitSDE.compare_tables(sql_table=sql_table,gdb_table=gdb_table)
+            result = UpdateNoiseMitSDE.compare_tables(sql_table=sql_table, gdb_table=gdb_table)
 
             compare_result = result["compare_result"]
             folioIds = result["folioIds"]
@@ -117,22 +119,31 @@ def execute_tool(tool, params):
                         # should return True when editing is complete
                         try:
                             table_updater.perform_update()
+                            # if the join field to calculate from two input field is specified perform the concatenation
+                            if join_field:
+                                table_updater.concatenate(join_field, agreement_field, leasehold_field)
 
-                            # create BuildingUpdater class object
-                            version_buildings = tool.get_versioned_fc(version_sde_file, buildings_name)
-                            if arcpy.Exists(version_buildings):
-                                try:
-                                    print(dir(BuildingsUpdater))
-                                    building_updater = BuildingsUpdater(domain_set, folioIds, version_buildings, gdb_table, building_attributes,
-                                                                        table_attributes, combination_attributes, version_sde_file, editor)
+                            # If the feature class to edit has been specified; create BuildingUpdater class object
+                            if buildings_name:
+                                version_buildings = tool.get_versioned_fc(version_sde_file, buildings_name)
+                                if arcpy.Exists(version_buildings):
+                                    try:
+                                        print(dir(BuildingsUpdater))
+                                        building_updater = BuildingsUpdater(domain_set, folioIds, version_buildings, gdb_table, building_attributes,
+                                                                            table_attributes, combination_attributes, version_sde_file, editor)
 
-                                    building_updater.update_buildings()
-                                    editor.stopEditing(True)
-                                except Exception as e:
-                                    raise Exception("Exception occured during buildings updates, edits have not been saved :: {}" \
-                                                   ":: {}".format(e.message, traceback.print_exc()))
+                                        building_updater.update_buildings()
+                                        editor.stopEditing(True)
+                                    except Exception as e:
+                                        raise Exception("Exception occured during buildings updates, edits have not been saved :: {}" \
+                                                       ":: {}".format(e, traceback.print_exc()))
+                                else:
+                                    raise Exception("Unable to locate the buildings feature class")
                             else:
-                                raise Exception("Unable to locate the buildings feature class")
+                                arcpy.AddMessage("Feature Class names not specified, so only a table is being updated")
+                                table_updater.last_scanned_date()
+                                editor.stopEditing(True)
+                                del editor
                         except:
                             raise Exception("Error during GDB Table update")
                     else:
@@ -149,7 +160,7 @@ def execute_tool(tool, params):
                 except Exception as e:
                     arcpy.AddError("Exception occurred during the rec/post operation, " +
                                    "the edits were saved in the version however the version will be removed without the " +
-                                   "edits having been posted to the default version :: {} :: {}".format(e.message, traceback.print_exc()))
+                                   "edits having been posted to the default version :: {} :: {}".format(e, traceback.print_exc()))
                 try:
                     version_manager.clean_previous()
                     del version_manager
@@ -159,7 +170,7 @@ def execute_tool(tool, params):
                 # Verify that the edits where posted
                 # TODO- determine failproof methods for isolating the changed features and viewing the change
                 env.workspace = sde_file
-                fields = [x for x in building_attributes.itervalues()]
+                fields = [x for x in list(building_attributes.values())]
                 if combination_attributes:
                     for x in combination_attributes:
                         fs = x["target"]
@@ -196,7 +207,7 @@ class Toolbox(object):
         self.alias = "Noise Mit Tools {}".format(version)
 
         # List of tool classes associated with this toolbox
-        self.tools = [WeaverGDBUpdate, CARsGDBUpdate]
+        self.tools = [WeaverGDBUpdate, CARsGDBUpdate, LeaseUpdate]
 
 
 class WeaverGDBUpdate(object):
@@ -223,7 +234,7 @@ class WeaverGDBUpdate(object):
         if environ == "bcad":
             param0.value = os.path.join(home_dir, 'DBConnections\\ad_gisair_dev.sde')
         elif environ == "arora":
-            param0.value = os.path.join(home_dir, 'DBConnections\\dbo@bcad_noise.sde')
+            param0.value = os.path.join(home_dir, 'DBConnections\\BCAD_Test.sde')
 
         param01 = arcpy.Parameter(
             displayName='Table Storage Database',
@@ -237,7 +248,7 @@ class WeaverGDBUpdate(object):
         if environ == "bcad":
             param01.value = os.path.join(home_dir, 'DBConnections\\ad_noisemit.sde')
         elif environ == "arora":
-            param01.value = os.path.join(home_dir, 'DBConnections\\dbo@bcad_noisemit_tables.sde')
+            param01.value = os.path.join(home_dir, 'DBConnections\\TestTables.sde')
 
         param02 = arcpy.Parameter(
             displayName='Operating System Authentication',
@@ -606,7 +617,7 @@ class CARsGDBUpdate(object):
         if environ == "bcad":
             param0.value = os.path.join(home_dir, 'DBConnections\\ad_gisair_dev.sde')
         elif environ == "arora":
-            param0.value = os.path.join(home_dir, 'DBConnections\\dbo@bcad_noise.sde')
+            param0.value = os.path.join(home_dir, 'DBConnections\\BCAD_Test.sde')
 
         param01 = arcpy.Parameter(
             displayName='Table Storage Database',
@@ -620,7 +631,7 @@ class CARsGDBUpdate(object):
         if environ == "bcad":
             param01.value = os.path.join(home_dir, 'DBConnections\\ad_noisemit.sde')
         elif environ == "arora":
-            param01.value = os.path.join(home_dir, 'DBConnections\\dbo@bcad_noisemit_tables.sde')
+            param01.value = os.path.join(home_dir, 'DBConnections\\TestTables.sde')
 
         param02 = arcpy.Parameter(
             displayName='Operating System Authentication',
@@ -946,5 +957,264 @@ class CARsGDBUpdate(object):
         """The method calls classes defined in external files."""
         arcpy.AddMessage("BCAD_NoiseMit_Tools.CARsGDBUpdate.execute()")
         params = self.processParameters(parameters=parameters)
+        success = execute_tool(self, params)
+        return success
+
+
+class LeaseUpdate(object):
+    def __init__(self):
+        self.label = "LeaseUpdate"
+        self.description = "A View of the Propworks SQL Table is being used to update a Lease GDB Table"
+        self.canRunInBackground = False
+
+    def getParameterInfo(self):
+        param0 = arcpy.Parameter(
+            displayName='GISGDB Workspace',
+            name='gis_geodatabase',
+            datatype='DEWorkspace',
+            parameterType='Required',
+            direction='Input',
+        )
+        param0.filter.list = ["Remote Database"]
+
+        if environ == "bcad":
+            param0.value = os.path.join(home_dir, 'DBConnections\\ad_gisair_dev.sde')
+        elif environ == "arora":
+            param0.value = os.path.join(home_dir, 'DBConnections\\BCAD_Test.sde')
+
+        param01 = arcpy.Parameter(
+            displayName='Staging Table Workspace',
+            name='table_geodatabase',
+            datatype='DEWorkspace',
+            parameterType='Required',
+            direction='Input',
+        )
+        param01.filter.list = ["Remote Database"]
+        if environ == "bcad":
+            param01.value = param0.value
+        elif environ == "arora":
+            param01.value = os.path.join(home_dir, 'DBConnections\\TestTables.sde')
+
+        param02 = arcpy.Parameter(
+            displayName='Operating System Authentication',
+            name='os_authentication',
+            datatype='GPBoolean',
+            parameterType='Optional',
+            direction='Input'
+        )
+
+        if environ == "bcad":
+            param02.value = True
+        elif environ == "arora":
+            param02.value = True
+
+        # # username for the database user
+        param03 = arcpy.Parameter(
+            displayName='Database Username',
+            name='database_username',
+            datatype='GPString',
+            parameterType='Optional',
+            direction='Input'
+        )
+
+        if environ == "bcad":
+            param03.value = ''
+        elif environ == "arora":
+            param03.value = ''
+
+        # password for the database user
+        param04 = arcpy.Parameter(
+            displayName='Database User Password',
+            name='password',
+            datatype='GPString',
+            parameterType='Optional',
+            direction='Input'
+        )
+
+        if environ == "bcad":
+            param04.value = ''
+        elif environ == "arora":
+            param04.value = ''
+
+        # variable for the parent version of the database
+        param05 = arcpy.Parameter(
+            displayName='Default Version',
+            name='default_version',
+            datatype='GPString',
+            parameterType='Required',
+            direction='Input'
+        )
+
+        if environ == "bcad":
+            param05.value = 'sde.DEFAULT'
+        elif environ == "arora":
+            param05.value = 'dbo.DEFAULT'
+
+        # sql table used to update the geodatabase table
+        param06 = arcpy.Parameter(
+            displayName='DBO.Lease Table / View of Propworks',
+            name='dbo.lease_table',
+            datatype='DETable',
+            parameterType='Required',
+            direction='Input'
+        )
+
+        if environ == "bcad":
+            param06.value = r'{}\GISAIRD.dbo.leases'.format(param01.value)
+        elif environ == "arora":
+            param06.value = r'{}\bcad_noisemit_tables.DBO.leases'.format(param01.value)
+
+        # GDB table which holds the weaver data from the sql table
+        param07 = arcpy.Parameter(
+            displayName='Relationship GDB Table',
+            name='gdb_table',
+            datatype='DETable',
+            parameterType='Required',
+            direction='Input'
+        )
+
+        if environ == "bcad":
+            param07.value = r'{}\GISAIRD.BCAD.Leases'.format(param0.value)
+        elif environ == "arora":
+            param07.value = r'{}\bcad_noise.DBO.Leases'.format(param0.value)
+
+        param08 = arcpy.Parameter(
+            displayName='Agreement-Leasehold Field',
+            name='agreement_lease_field',
+            datatype='Field',
+            parameterType='Required',
+            direction='Input'
+        )
+
+        param08.filter.list = ['Text']
+        param08.parameterDependencies = [param07.name]
+
+        if environ == 'bcad':
+            param08.value = "AGREEMENT_LEASE"
+        elif environ == "arora":
+            param08.value = "AGREEMENT_LEASE"
+
+        param09 = arcpy.Parameter(
+            displayName='Agreement Field',
+            name='agreement_field',
+            datatype='Field',
+            parameterType='Required',
+            direction='Input'
+        )
+
+        param09.filter.list = ['Text']
+        param09.parameterDependencies = [param07.name]
+
+        if environ == 'bcad':
+            param09.value = "AGREEMENT_NUMBER"
+        elif environ == "arora":
+            param09.value = "AGREEMENT_NUMBER"
+
+        param10 = arcpy.Parameter(
+            displayName='Leasehold Field',
+            name='leasehold_field',
+            datatype='Field',
+            parameterType='Required',
+            direction='Input'
+        )
+
+        param10.filter.list = ['Text']
+        param10.parameterDependencies = [param07.name]
+
+        if environ == 'bcad':
+            param09.value = "LEASEHOLD_NUMBER"
+        elif environ == "arora":
+            param09.value = "LEASEHOLD_NUMBER"
+
+        param11 = arcpy.Parameter(
+            displayName="Server Instance",
+            name='server_instance',
+            datatype='GPString',
+            parameterType='Required',
+            direction='Input'
+        )
+
+        if environ == "bcad":
+            param11.value = 'fllgissql01'
+        elif environ == "arora":
+            param11.value = r"ARORALAPTOP50\SDESQLEXPRESS"
+
+        param12 = arcpy.Parameter(
+            displayName="Database Name",
+            name='database_name',
+            datatype='GPString',
+            parameterType='Required',
+            direction='Input'
+        )
+
+        if environ == "bcad":
+            param12.value = "GISAIRD"
+        elif environ == "arora":
+            param12.value = "bcad_noise"
+
+        params = [param0, param01, param02, param03, param04, param05, param06, param07, param08, param09, param10, param11, param12]
+        return params
+
+    def processParameters(self, parameters):
+        arcpy.AddMessage("BCAD_NoiseMit_Tools.LeaseUpdate.process_parameters()")
+        params = [p.valueAsText for p in parameters]
+
+        gis_gdb, table_gdb, os_auth, uid, pwd, p_version,  \
+        view_table, gdb_table, join_field, agreement_field, leasehold_field, server_instance, database = params
+
+        if gdb_table:
+            gdb_table_name = gdb_table.split("\\")[-1].split(".")[-1]
+        else:
+            gdb_table_name = "Leases"
+
+        connection_folder = os.path.join(home_dir, "DBConnections")
+        plat = r"SQL_SERVER"
+        instance = server_instance
+        opt = {
+            "database": database,
+            "version_type": "TRANSACTIONAL",
+            "version": p_version,
+            "date": "",
+            "schema": "#"
+        }
+
+        if os_auth == 'true':
+            opt["account_authentication"] = "OPERATING_SYSTEM_AUTH"
+        else:
+            opt["account_authentication"] = "DATABASE_AUTH"
+            opt["username"] = uid
+            opt["password"] = pwd
+            opt["save_user_pass"] = "SAVE_USERNAME"
+
+        # name of the version_sde_file to be created for editing
+        edit_connection_name = "Leases.sde"
+        # name of the version to be created for editing
+        edit_version_name = "Leases"
+
+        final_parameters = {
+            "connection_folder": connection_folder,
+            "platform": plat,
+            "instance": instance,
+            "gis_gdb": gis_gdb,
+            "join_field": join_field,
+            "agreement_field": agreement_field,
+            "leasehold_field": leasehold_field,
+            "sql_table": view_table,
+            "gdb_table": gdb_table,
+            "gdb_table_name": gdb_table_name,
+            "edit_connection_name": edit_connection_name,
+            "edit_version_name": edit_version_name,
+            "opt": opt,
+        }
+
+        return final_parameters
+
+    def execute(self, parameters, message):
+        """The method calls classes defined in external files."""
+        arcpy.AddMessage("BCAD_NoiseMit_Tools.LeaseUpdate.execute()")
+        params = self.processParameters(parameters)
+        # the execute_tool function updates the GDB and updates specified attributes on a features class,
+        # for this tool, we need to perform a concatenation of two fields into the Agreement_Lease field
+        # this field parameter is removed from params
         success = execute_tool(self, params)
         return success

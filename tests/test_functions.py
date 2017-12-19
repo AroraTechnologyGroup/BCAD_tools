@@ -13,7 +13,7 @@ class TestClean_row(TestCase):
     def test_clean_row(self):
         test_row = ["   ", None, "  apple", "tree  "]
         row = Code.clean_row(test_row)
-        print row
+        print(row)
         self.assertListEqual(["", "", "apple", "tree"], row)
 
 
@@ -50,7 +50,7 @@ class TestCompare_tables(TestCase):
             if not arcpy.Exists(x):
                 self.fail()
         compare = Code.compare_tables(sql_table=SQL_Table, gdb_table=GDB_Table)
-        keys = compare.keys()
+        keys = list(compare.keys())
         keys.sort()
         # these items must be in alphabetical order!
         self.assertListEqual(["add_rows", "compare_result", "exist_rows", "folioIds",
@@ -58,12 +58,12 @@ class TestCompare_tables(TestCase):
 
         if compare["compare_result"] == 0:
             for x in [compare["add_rows"], compare["exist_rows"]]:
-                print "length should be 0 :: {}".format(len(x))
+                print("length should be 0 :: {}".format(len(x)))
                 self.assertEquals(len(x), 0)
 
         elif compare["compare_result"] >= 1:
             rows = len(compare["add_rows"]) + len(compare["exist_rows"])
-            print "length should be greater than 0 :: {}".format(rows)
+            print("length should be greater than 0 :: {}".format(rows))
             self.assertGreaterEqual(rows, 1)
             # check that foliosIds are snagged
             self.assertGreaterEqual(len(compare["folioIds"]), 1)
