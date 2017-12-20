@@ -42,12 +42,18 @@ def compare_tables(sql_table, gdb_table):
         source_fields = {}
         read_fields = arcpy.ListFields(sql_table)
         for x in read_fields:
-            source_fields[x.name] = x.type
+            source_fields[x.name.lower()] = {
+                "type": x.type,
+                "name": x.name
+            }
 
         target_fields = {}
         existing_fields = arcpy.ListFields(gdb_table)
         for x in existing_fields:
-            target_fields[x.name] = x.type
+            source_fields[x.name.lower()] = {
+                "type": x.type,
+                "name": x.name
+            }
 
         # The only missing field should be ObjectID because the sql table is not registered with the geodatabase
         source_keys = list(source_fields.keys())
@@ -74,7 +80,7 @@ def compare_tables(sql_table, gdb_table):
 
         folio_index = []
         if "FolioNumber" in _match_fields:
-            folio_index.append(_match_fields.index("FolioNumber"))
+            folio_index.append(_match_fields.index("folionumber"))
 
         if len(new_fields):
             raise Exception("A schema change is needed in the updated {} table :: {}".format(gdb_table, new_fields))
@@ -83,15 +89,19 @@ def compare_tables(sql_table, gdb_table):
             arcpy.AddMessage("These fields were not found in the source sql table :: {}".format(missing_fields))
 
         # Add all of the rows from the weaver sql table to a list
+        # rebuild the match fields from the dictionary
+
+        field_names = [source_fields[y]["name"] for y in _match_fields]
         add_rows = []
-        with da.SearchCursor(sql_table, _match_fields) as cursor:
+        with da.SearchCursor(sql_table, field_names) as cursor:
             for row in cursor:
                 row = clean_row(row)
                 add_rows.append(row)
         del cursor
 
+        field_names = [target_fields[y]["name"] for y in _match_fields]
         rem_rows = []
-        with da.SearchCursor(gdb_table, _match_fields) as cursor:
+        with da.SearchCursor(gdb_table, field_names) as cursor:
             for row in cursor:
                 row = clean_row(row)
                 if row in add_rows:
