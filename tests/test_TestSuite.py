@@ -17,7 +17,8 @@ suite4 = test_buildingsUpdater.suite()
 suite5 = test_PythonToolbox.suite()
 
 conn_suites = unittest.TestSuite([suite1, suite2])
-data_suites = unittest.TestSuite([suite3, suite4])
+# data_suites = unittest.TestSuite([suite3, suite4])
+data_suites = unittest.TestSuite([suite3])
 master_suites = unittest.TestSuite([suite5])
 
 runner = unittest.TextTestRunner()

@@ -144,7 +144,7 @@ class TestLeaseTableUpdater(TestCase):
         cls.version_gdb_table = arcpy.ListTables("*{}*".format(gdb_table_name))[0]
 
     def setUp(self):
-        self.editor.startEditing()
+        self.editor.startEditing(False, True)
         # All of the tests use this updater which has write rows and remove rows determined by the compare tables function
         self.updater = Updater(match_fields=self.match_fields, write_table=self.version_gdb_table,
                                read_rows=self.add_rows,
@@ -188,9 +188,9 @@ class TestLeaseTableUpdater(TestCase):
 
 
 def suite():
-    x = unittest.TestLoader().loadTestsFromTestCase(TestGDBTableUpdater)
+    # x = unittest.TestLoader().loadTestsFromTestCase(TestGDBTableUpdater)
     y = unittest.TestLoader().loadTestsFromTestCase(TestLeaseTableUpdater)
-    return unittest.TestSuite((y, x))
+    return unittest.TestSuite((y,))
 
 
 if __name__ == "__main__":

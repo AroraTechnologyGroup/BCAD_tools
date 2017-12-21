@@ -12,6 +12,8 @@ env.overwriteOutput = 1
 
 home_dir = os.path.dirname(os.path.abspath(__file__))
 
+logger = logging.getLogger(__package__)
+
 domain_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "domains.json")
 file = open(domain_file, 'r')
 domains = json.loads(file.read())
@@ -50,7 +52,7 @@ def compare_tables(sql_table, gdb_table):
         target_fields = {}
         existing_fields = arcpy.ListFields(gdb_table)
         for x in existing_fields:
-            source_fields[x.name.lower()] = {
+            target_fields[x.name.lower()] = {
                 "type": x.type,
                 "name": x.name
             }
@@ -71,12 +73,20 @@ def compare_tables(sql_table, gdb_table):
                          u"last_edited_date", u"last_edited_user", u"Shape.STLength()"]
 
         for x in remove_fields:
-            if x in _match_fields:
-                _match_fields.remove(x)
-            if x in missing_fields:
-                missing_fields.remove(x)
-            if x in new_fields:
-                new_fields.remove(x)
+            value = x.lower()
+            if value in _match_fields:
+                _match_fields.remove(value)
+            if value in missing_fields:
+                missing_fields.remove(value)
+            if value in new_fields:
+                new_fields.remove(value)
+
+        # for the remaining match fields, compare their types.
+        for x in _match_fields:
+            source_type = source_fields[x]["type"]
+            target_type = target_fields[x]["type"]
+            if source_type != target_type:
+                logger.error("{} source type != {} target type".format(source_type, target_type))
 
         folio_index = []
         if "FolioNumber" in _match_fields:
@@ -179,15 +189,13 @@ def clean_row(_row):
     cleaned_row = []
     for _x in _row:
         try:
-            if _x is None:
-                _x = u""
-            elif isinstance(_x, datetime.datetime):
-                _x = _x
-            else:
+            if type(_x) is str:
                 _x = _x.strip()
                 for a in ["!", "@", "#", "$", "%", "^", "&", "*", ","]:
                     _x = _x.replace(a, u"-")
                     _x = _x.strip()
+            else:
+                _x = _x
 
         except AttributeError:
             pass
@@ -375,14 +383,11 @@ class GDBTableUpdater:
             i = 0
             for _row in self.read_rows:
                 try:
-                    arcpy.AddMessage(_row)
-                    try:
-                        insert.insertRow(_row)
-                        i += 1
-                    except Exception as e:
-                        arcpy.AddWarning(e)
+                    insert.insertRow(_row)
+                    i += 1
                 except Exception as e:
-                    arcpy.AddWarning(e)
+                    arcpy.AddWarning("{} \n {} \n {}".format(e, _row, fields))
+
 
             del insert
             if not i:
@@ -399,7 +404,7 @@ class GDBTableUpdater:
 
     def delete_rows(self):
         arcpy.AddMessage("UpdateNoiseMitSDE.GDBTableUpdater.delete_rows()")
-        if self.folioIds:
+        if "folioIds" in dir(self):
             folio_ids = self.folioIds
             sql_query = "{} in ('{}')".format(self.folio_field, "','".join(folio_ids))
         else:
@@ -412,8 +417,8 @@ class GDBTableUpdater:
             with da.UpdateCursor(self.write_table, self.match_fields, sql_query) as _cursor:
                 for line in _cursor:
                     # delete all rows that are identical to an item in the input list
-                    line = clean_row(line)
-                    if line in rem_rows:
+                    line2 = clean_row(line)
+                    if line2 in rem_rows:
                         i += 1
                         _cursor.deleteRow()
                         pass
@@ -463,9 +468,9 @@ class GDBTableUpdater:
 
     def concatenate(self, join_field, first_field, second_field):
         arcpy.AddMessage("UpdateNoiseMitSDE.GDBTableUpdater.concatenate()")
-        self.editor.startOperation()
         d = False
         try:
+            self.editor.startOperation()
             with da.UpdateCursor(self.write_table, [join_field, first_field, second_field]) as cursor:
                 for row in cursor:
                     if row[1] and row[2]:
@@ -473,13 +478,13 @@ class GDBTableUpdater:
                         new_row = [conc, row[1], row[2]]
                         cursor.updateRow(new_row)
             d = True
+            del cursor
+            self.editor.stopOperation()
         except Exception as e:
             logging.error(e)
             d = False
-
-        self.editor.stopOperation()
+            self.editor.stopOperation()
         return d
-
 
     def last_scanned_date(self):
         arcpy.AddMessage("UpdateNoiseMitSDE.GDBTableUpdater.last_scanned_date()")
@@ -491,6 +496,7 @@ class GDBTableUpdater:
                 for row in cursor:
                     newrow = [datetime.datetime.today()]
                     cursor.updateRow(newrow)
+            del cursor
             self.editor.stopOperation()
         except Exception as e:
             arcpy.AddWarning(e)

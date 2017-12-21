@@ -1122,9 +1122,9 @@ class LeaseUpdate(object):
         param10.parameterDependencies = [param07.name]
 
         if environ == 'bcad':
-            param09.value = "LEASEHOLD_NUMBER"
+            param10.value = "LEASEHOLD_NUMBER"
         elif environ == "arora":
-            param09.value = "LEASEHOLD_NUMBER"
+            param10.value = "LEASEHOLD_NUMBER"
 
         param11 = arcpy.Parameter(
             displayName="Server Instance",
