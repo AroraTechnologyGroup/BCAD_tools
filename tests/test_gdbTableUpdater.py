@@ -188,9 +188,9 @@ class TestLeaseTableUpdater(TestCase):
 
 
 def suite():
-    # x = unittest.TestLoader().loadTestsFromTestCase(TestGDBTableUpdater)
+    x = unittest.TestLoader().loadTestsFromTestCase(TestGDBTableUpdater)
     y = unittest.TestLoader().loadTestsFromTestCase(TestLeaseTableUpdater)
-    return unittest.TestSuite((y,))
+    return unittest.TestSuite((x, y))
 
 
 if __name__ == "__main__":

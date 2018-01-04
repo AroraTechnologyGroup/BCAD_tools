@@ -42,40 +42,66 @@ def execute_tool(tool, params):
     platform = params["platform"]
     instance = params["instance"]
     sde_file = params["gis_gdb"]
-    table_db = params["table_db"]
-    bldgs = params["bldgs"]
+
     sql_table = params["sql_table"]
     gdb_table = params["gdb_table"]
     gdb_table_name = params["gdb_table_name"]
-    join_field = params["join_field"]
-    agreement_field = params["agreement_field"]
-    leasehold_field = params["leasehold_field"]
-    buildings_name = params["buildings_name"]
+
     edit_connection_name = params["edit_connection_name"]
     edit_version_name = params["edit_version_name"]
-    building_attributes = params["building_attributes"]
-    table_attributes = params["table_attributes"]
-    opt = params["opt"]
-    domain_set = params["domains"]
-    # check if fields are being combined during the update
-    keys = params.keys()
-    combination_attributes = None
 
+    opt = params["opt"]
+
+    keys = params.keys()
+    # check if an external database is holding the source tables
+    table_db = None
+    if "table_db" in keys:
+        table_db = params["table_db"]
+
+    # check if domains are passed in params
+    domain_set = None
+    if "domains" in keys:
+        domain_set = params["domains"]
+
+    # check if buildings are in params
+    buildings_name = None
+    building_attributes = None
+    table_attributes = None
+    bldgs = None
+    if "bldgs" in keys:
+        bldgs = params["bldgs"]
+    if "buildings_name" in keys:
+        buildings_name = params["buildings_name"]
+    if "building_attributes" in keys:
+        building_attributes = params["building_attributes"]
+    if "table_attributes" in keys:
+        table_attributes = params["table_attributes"]
+
+    # check if an agreement and leasehold fields are params
+    agreement_field = None
+    leasehold_field = None
+    if "agreement_field" in keys:
+        agreement_field = params["agreement_field"]
+    if "leasehold_field" in keys:
+        leasehold_field = params["leasehold_field"]
+
+    # check if fields are being combined during the update
+    combination_attributes = None
+    join_field = None
     if "combination_attributes" in keys:
         combination_attributes = params["combination_attributes"]
-
+    if "join_field" in keys:
+        join_field = params["join_field"]
 
     try:
         # Fail the Tool if the Source tables are empty
-        env.workspace = table_db
-        tables = arcpy.ListTables()
-        for t in tables:
-            i = 0
-            with arcpy.da.SearchCursor(t, "*") as cursor:
-                for row in cursor:
-                    i += 1
-            if not i:
-                raise Exception("No rows exist in the source table {}".format(t))
+        i = 0
+        with arcpy.da.SearchCursor(sql_table, "*") as cursor:
+            for row in cursor:
+                i += 1
+                break
+        if not i:
+            raise Exception("No rows exist in the source table {}".format(sql_table))
 
         try:
 
@@ -108,9 +134,14 @@ def execute_tool(tool, params):
                 gdb_table = arcpy.ListTables("*{}*".format(gdb_table_name))[0]
                 gdb_table = os.path.join(env.workspace, gdb_table)
                 print(dir(GDBTableUpdater))
-                table_updater = GDBTableUpdater(table_attributes, folioIds, match_fields, gdb_table, add_rows, exist_rows,
-                                                version_sde_file, editor)
-                # compare result if True means that changes need to be made to the GDB Table and thus the Buildings
+                """
+                match_fields, write_table, read_rows, remove_rows, version_sde,
+                editor, weaver_attributes = {}, folioIds = []
+                """
+
+                table_updater = GDBTableUpdater(match_fields, gdb_table, add_rows, exist_rows,
+                                                version_sde_file, editor, table_attributes, folioIds)
+                # compare result, if True, means that changes need to be made to the GDB Table
                 if compare_result:
                     arcpy.AddMessage({"# rows to add": len(add_rows),
                                       "# rows to remove": len(exist_rows)})
@@ -140,7 +171,7 @@ def execute_tool(tool, params):
                                 else:
                                     raise Exception("Unable to locate the buildings feature class")
                             else:
-                                arcpy.AddMessage("Feature Class names not specified, so only a table is being updated")
+                                arcpy.AddMessage("Building feature class name not specified, so only a table is being updated")
                                 table_updater.last_scanned_date()
                                 editor.stopEditing(True)
                                 del editor
@@ -169,21 +200,22 @@ def execute_tool(tool, params):
 
                 # Verify that the edits where posted
                 # TODO- determine failproof methods for isolating the changed features and viewing the change
-                env.workspace = sde_file
-                fields = [x for x in list(building_attributes.values())]
-                if combination_attributes:
-                    for x in combination_attributes:
-                        fs = x["target"]
-                        fields.append(fs[1])
+                if building_attributes:
+                    env.workspace = sde_file
+                    fields = [x for x in list(building_attributes.values())]
+                    if combination_attributes:
+                        for x in combination_attributes:
+                            fs = x["target"]
+                            fields.append(fs[1])
 
-                cursor = da.SearchCursor(bldgs, fields,
-                                         "{} in ('{}')".format(building_attributes["Folio Number"], "','".join(folioIds)))
-                try:
-                    values = cursor.next()
-                    arcpy.AddMessage("This is an edited row in the buildings table :: {}".format(values))
-                except StopIteration:
-                    arcpy.AddMessage("No buildings found with folioIDs in {}".format(folioIds))
-                del cursor
+                    cursor = da.SearchCursor(bldgs, fields,
+                                             "{} in ('{}')".format(building_attributes["Folio Number"], "','".join(folioIds)))
+                    try:
+                        values = cursor.next()
+                        arcpy.AddMessage("This is an edited row in the buildings table :: {}".format(values))
+                    except StopIteration:
+                        arcpy.AddMessage("No buildings found with folioIDs in {}".format(folioIds))
+                    del cursor
                 return True
 
             except Exception as e:
@@ -1213,7 +1245,7 @@ class LeaseUpdate(object):
         """The method calls classes defined in external files."""
         arcpy.AddMessage("BCAD_NoiseMit_Tools.LeaseUpdate.execute()")
         params = self.processParameters(parameters)
-        # the execute_tool function updates the GDB and updates specified attributes on a features class,
+        # the execute_tool function updates the GDB and optionally updates specified attributes on a features class,
         # for this tool, we need to perform a concatenation of two fields into the Agreement_Lease field
         # this field parameter is removed from params
         success = execute_tool(self, params)

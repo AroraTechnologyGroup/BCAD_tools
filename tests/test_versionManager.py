@@ -67,5 +67,6 @@ def suite():
     x = unittest.TestLoader().loadTestsFromTestCase(TestVersionManager)
     return unittest.TestSuite(x)
 
+
 if __name__ == "__main__":
     unittest.main()

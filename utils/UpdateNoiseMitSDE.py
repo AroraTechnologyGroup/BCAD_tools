@@ -22,9 +22,9 @@ file.close()
 
 def compare_tables(sql_table, gdb_table):
     arcpy.AddMessage("UpdateNoiseMitSDE.compare_tables()")
-    """Compare the fields between the tables to catch a schema change.
-    List all of the rows in the source table, check for the existence of an existing row
-    in the list of source rows.
+    """
+    1. Compare the fields between the tables to catch a schema change.
+    2. Perform the field type and length filter on the read rows to remove values that are invalid in the target table
 
     The return value is a dictionary including the folio Ids for rows being updated,
     as well as the rows themselves.
@@ -52,9 +52,15 @@ def compare_tables(sql_table, gdb_table):
         target_fields = {}
         existing_fields = arcpy.ListFields(gdb_table)
         for x in existing_fields:
+            if x.type == "String":
+                length = x.length
+            else:
+                length = None
+
             target_fields[x.name.lower()] = {
                 "type": x.type,
-                "name": x.name
+                "name": x.name,
+                "length": length
             }
 
         # The only missing field should be ObjectID because the sql table is not registered with the geodatabase
@@ -89,7 +95,7 @@ def compare_tables(sql_table, gdb_table):
                 logger.error("{} source type != {} target type".format(source_type, target_type))
 
         folio_index = []
-        if "FolioNumber" in _match_fields:
+        if "folionumber" in _match_fields:
             folio_index.append(_match_fields.index("folionumber"))
 
         if len(new_fields):
@@ -99,13 +105,12 @@ def compare_tables(sql_table, gdb_table):
             arcpy.AddMessage("These fields were not found in the source sql table :: {}".format(missing_fields))
 
         # Add all of the rows from the weaver sql table to a list
-        # rebuild the match fields from the dictionary
 
         field_names = [source_fields[y]["name"] for y in _match_fields]
         add_rows = []
         with da.SearchCursor(sql_table, field_names) as cursor:
             for row in cursor:
-                row = clean_row(row)
+                row = clean_row(target_fields, field_names, row)
                 add_rows.append(row)
         del cursor
 
@@ -113,7 +118,7 @@ def compare_tables(sql_table, gdb_table):
         rem_rows = []
         with da.SearchCursor(gdb_table, field_names) as cursor:
             for row in cursor:
-                row = clean_row(row)
+                row = clean_row(target_fields, field_names, row)
                 if row in add_rows:
                     add_rows.remove(row)
                     pass
@@ -184,18 +189,50 @@ def print_connection_info(workspace):
     return {"database": cp.database, "version": cp.version}
 
 
-def clean_row(_row):
-    """take an input row from a cursor, clean it, then return the cleaned row"""
+def clean_row(target_fields, field_names, _row):
+    """take an input row from a cursor, clean it, compare against target schema, then return the cleaned row"""
+    """
+    Cleaning the rows should only happen once when the data is read from the source table,  when the buildings 
+    are updated from the related table it is assumed that the rows are already clean
+    """
     cleaned_row = []
-    for _x in _row:
+    for i in range(len(_row)):
+        _x = _row[i]
+        field_name = field_names[i]
+        target_type = target_fields[field_name.lower()]["type"]
+        target_length = target_fields[field_name.lower()]["length"]
+
         try:
-            if type(_x) is str:
-                _x = _x.strip()
-                for a in ["!", "@", "#", "$", "%", "^", "&", "*", ","]:
-                    _x = _x.replace(a, u"-")
-                    _x = _x.strip()
+            if target_type == "String":
+                if type(_x) is str:
+                    _x = unicode(_x.strip(), encoding="utf8")
+                    for a in ["!", "@", "#", "$", "%", "^", "&", "*", ","]:
+                        _x = _x.replace(a, u"-")
+                        _x = _x.strip()
+                        if len(_x) > target_length:
+                            _x = u""
+                elif type(_x) is unicode:
+                    for a in ["!", "@", "#", "$", "%", "^", "&", "*", ","]:
+                        _x = _x.replace(a, u"-")
+                        _x = _x.strip()
+                        if len(_x) > target_length:
+                            _x = u""
+                if not _x:
+                    _x = u""
+                # else:
+                #     try:
+                #         _x = _x.encode('ascii', errors='xmlcharrefreplace')
+                #     except Exception as e:
+                #         pass
+            elif target_type == "Date":
+                if not _x:
+                    _x = None
+            elif target_type == "Double":
+                if not _x:
+                    _x = 0.0
             else:
-                _x = _x
+                if not _x:
+                    _x = None
 
         except AttributeError:
             pass
@@ -417,8 +454,7 @@ class GDBTableUpdater:
             with da.UpdateCursor(self.write_table, self.match_fields, sql_query) as _cursor:
                 for line in _cursor:
                     # delete all rows that are identical to an item in the input list
-                    line2 = clean_row(line)
-                    if line2 in rem_rows:
+                    if line in rem_rows:
                         i += 1
                         _cursor.deleteRow()
                         pass
@@ -489,15 +525,17 @@ class GDBTableUpdater:
     def last_scanned_date(self):
         arcpy.AddMessage("UpdateNoiseMitSDE.GDBTableUpdater.last_scanned_date()")
         try:
-            self.editor.startOperation()
-            # attribute the last scanned date
-            field = ["LastScannedDate"]
-            with da.UpdateCursor(self.write_table, field) as cursor:
-                for row in cursor:
-                    newrow = [datetime.datetime.today()]
-                    cursor.updateRow(newrow)
-            del cursor
-            self.editor.stopOperation()
+            f_lower = [f.name.lower() for f in arcpy.ListFields(self.write_table)]
+            if "lastscanneddate" in f_lower:
+                self.editor.startOperation()
+                # attribute the last scanned date
+                field = ["LastScannedDate"]
+                with da.UpdateCursor(self.write_table, field) as cursor:
+                    for row in cursor:
+                        newrow = [datetime.datetime.today()]
+                        cursor.updateRow(newrow)
+                del cursor
+                self.editor.stopOperation()
         except Exception as e:
             arcpy.AddWarning(e)
             self.editor.stopOperation()
@@ -558,10 +596,9 @@ class BuildingsUpdater:
                     for row in cursor:
                         n += 1
                         try:
-                            cleaned_row = clean_row(row)
-                            folio = cleaned_row[0]
-                            f1 = cleaned_row[1]
-                            f2 = cleaned_row[2]
+                            folio = row[0]
+                            f1 = row[1]
+                            f2 = row[2]
                             if f1 and f2:
                                 f1 = f1.capitalize()
                                 f2 = f2.capitalize()
@@ -611,8 +648,7 @@ class BuildingsUpdater:
 
                 with da.UpdateCursor(self.buildings, target_fields, sql_exp2) as cursor:
                     for row in cursor:
-                        cleaned_row = clean_row(row)
-                        folio = cleaned_row[0]
+                        folio = row[0]
                         num += 1
                         try:
                             if folio in keys:
@@ -623,7 +659,7 @@ class BuildingsUpdater:
                                 if len(contact_str) > max_length:
                                     contact_str = contact_str[:max_length]
                                 new_row = [folio, contact_str]
-                                if new_row != cleaned_row:
+                                if new_row != row:
                                     try:
                                         cursor.updateRow(new_row)
                                         arcpy.AddMessage("Good Row :: {}".format(new_row))
@@ -672,8 +708,7 @@ class BuildingsUpdater:
             with da.UpdateCursor(self.buildings, building_fields, sql_exp2) as _cursor:
                 for _row in _cursor:
                     num += 1
-                    cleaned_row = clean_row(_row)
-                    folio_id = cleaned_row[0]
+                    folio_id = _row[0]
                     table_values = self.folios[folio_id]
 
                     new_row = [folio_id]
@@ -705,7 +740,7 @@ class BuildingsUpdater:
                                 for c in most_common:
                                     item = c[0]
                                     # if it is a string value
-                                    if type(item) == unicode:
+                                    if type(item) is str:
                                         # check if it exists in the pick list
                                         if item.lower().strip() in value_list:
                                             # set the final list of values to the single most common string
@@ -774,11 +809,10 @@ class BuildingsUpdater:
                 with da.SearchCursor(self.rel_table, table_fields, sql_expression) as _cursor:
                     for _row in _cursor:
                         try:
-                            cleaned_row = clean_row(_row)
                             for x in self.folios[_row[0]].keys():
                                 # these keys are the attribute field names
                                 _index = table_fields.index(x)
-                                self.folios[_row[0]][x].append(cleaned_row[_index])
+                                self.folios[_row[0]][x].append(_row[_index])
                         except Exception as e:
                             arcpy.AddWarning(e)
 

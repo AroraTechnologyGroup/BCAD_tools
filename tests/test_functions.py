@@ -11,10 +11,31 @@ from utils.UpdateNoiseMitSDE import SdeConnector as Connector
 
 class TestClean_row(TestCase):
     def test_clean_row(self):
+        # [target_fields, field_names, _row]
+        target_fields = {
+            "first": {
+                "type": "String",
+                "length": 2
+            },
+            "second": {
+                "type": "Double",
+                "length": None
+            },
+            "third": {
+                "type": "String",
+                "length": 2
+            },
+            "fourth": {
+                "type": "String",
+                "length": 4
+            }
+        }
+        field_names = ["First", "Second", "Third", "Fourth"]
+
         test_row = ["   ", None, "  apple", "tree  "]
-        row = Code.clean_row(test_row)
+        row = Code.clean_row(target_fields, field_names, test_row)
         print(row)
-        self.assertListEqual(["", "", "apple", "tree"], row)
+        self.assertListEqual(["", 0.0, "", "tree"], row)
 
 
 class TestCompare_tables(TestCase):

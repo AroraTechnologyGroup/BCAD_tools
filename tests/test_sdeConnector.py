@@ -49,5 +49,6 @@ def suite():
     x = unittest.TestLoader().loadTestsFromTestCase(TestSdeConnector)
     return unittest.TestSuite(x)
 
+
 if __name__ == "__main__":
     unittest.main()
