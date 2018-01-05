@@ -92,7 +92,7 @@ def compare_tables(sql_table, gdb_table):
             source_type = source_fields[x]["type"]
             target_type = target_fields[x]["type"]
             if source_type != target_type:
-                logger.error("{} source type != {} target type".format(source_type, target_type))
+                arcpy.AddWarning("{} source type != {} target type".format(source_type, target_type))
 
         folio_index = []
         if "folionumber" in _match_fields:
@@ -110,27 +110,28 @@ def compare_tables(sql_table, gdb_table):
         add_rows = []
         with da.SearchCursor(sql_table, field_names) as cursor:
             for row in cursor:
-                row = clean_row(target_fields, field_names, row)
+                new_row = clean_row(target_fields, field_names, row)
                 i = 0
-                for x in row:
+                for x in new_row:
                     # this removes empty rows from the source list
                     if x:
                         i += 1
                     if i:
                         break
                 if i:
-                    add_rows.append(row)
+                    add_rows.append(new_row)
+                del new_row
         del cursor
 
         field_names = [target_fields[y]["name"] for y in _match_fields]
         rem_rows = []
         with da.SearchCursor(gdb_table, field_names) as cursor:
             for row in cursor:
-                row = clean_row(target_fields, field_names, row)
-                if row in add_rows:
-                    add_rows.remove(row)
+                _row = clean_row(target_fields, field_names, row)
+                if _row in add_rows:
+                    add_rows.remove(_row)
                     pass
-                # if the row is not in the add_rows, then add it to the exist_rows to remove
+                # if the row is not in the add_rows, then add it to the rem_rows
                 else:
                     rem_rows.append(row)
         del cursor
@@ -225,13 +226,11 @@ def clean_row(target_fields, field_names, _row):
                         _x = _x.strip()
                         if len(_x) > target_length:
                             _x = u""
+                elif type(_x) is datetime.datetime:
+                    _x = u"{}".format(_x.date())
                 if not _x:
                     _x = u""
-                # else:
-                #     try:
-                #         _x = _x.encode('ascii', errors='xmlcharrefreplace')
-                #     except Exception as e:
-                #         pass
+
             elif target_type == "Date":
                 if type(_x) is datetime.datetime:
                     _x = _x.date()
