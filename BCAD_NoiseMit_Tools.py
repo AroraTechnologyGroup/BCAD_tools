@@ -14,7 +14,7 @@ env.overwriteOutput = 1
 home_dir = os.path.dirname(os.path.abspath(__file__))
 
 environ = "arora"
-version = 'v1.4'
+version = 'v1.5'
 
 domain_file = os.path.join(home_dir, "utils/domains.json")
 file = open(domain_file, 'r')
@@ -133,7 +133,7 @@ def execute_tool(tool, params):
                 env.workspace = version_sde_file
                 gdb_table = arcpy.ListTables("*{}*".format(gdb_table_name))[0]
                 gdb_table = os.path.join(env.workspace, gdb_table)
-                print(dir(GDBTableUpdater))
+                arcpy.AddMessage(dir(GDBTableUpdater))
                 """
                 match_fields, write_table, read_rows, remove_rows, version_sde,
                 editor, weaver_attributes = {}, folioIds = []
@@ -1018,12 +1018,12 @@ class LeaseUpdate(object):
             displayName='Staging Table Workspace',
             name='table_geodatabase',
             datatype='DEWorkspace',
-            parameterType='Required',
+            parameterType='Optional',
             direction='Input',
         )
         param01.filter.list = ["Remote Database"]
         if environ == "bcad":
-            param01.value = param0.value
+            param01.value = "{}".format(param0.value)
         elif environ == "arora":
             param01.value = os.path.join(home_dir, 'DBConnections\\TestTables.sde')
 

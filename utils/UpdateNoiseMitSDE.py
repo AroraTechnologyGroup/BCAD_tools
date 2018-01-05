@@ -111,7 +111,15 @@ def compare_tables(sql_table, gdb_table):
         with da.SearchCursor(sql_table, field_names) as cursor:
             for row in cursor:
                 row = clean_row(target_fields, field_names, row)
-                add_rows.append(row)
+                i = 0
+                for x in row:
+                    # this removes empty rows from the source list
+                    if x:
+                        i += 1
+                    if i:
+                        break
+                if i:
+                    add_rows.append(row)
         del cursor
 
         field_names = [target_fields[y]["name"] for y in _match_fields]
@@ -445,7 +453,7 @@ class GDBTableUpdater:
             folio_ids = self.folioIds
             sql_query = "{} in ('{}')".format(self.folio_field, "','".join(folio_ids))
         else:
-            sql_query = "%"
+            sql_query = None
 
         try:
             self.editor.startOperation()
