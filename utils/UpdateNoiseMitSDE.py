@@ -133,7 +133,7 @@ def compare_tables(sql_table, gdb_table):
                     pass
                 # if the row is not in the add_rows, then add it to the rem_rows
                 else:
-                    rem_rows.append(row)
+                    rem_rows.append(list(row))
         del cursor
 
         compare_result = 0
