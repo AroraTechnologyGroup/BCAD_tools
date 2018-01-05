@@ -25,7 +25,7 @@ file.close()
 def get_versioned_fc(workspace, name):
     arcpy.AddMessage("BCAD_NoiseMit_Tools.get_versioned_fc()")
     env.workspace = workspace
-    noisemit = arcpy.ListDatasets("*Noise*")[0]
+    noisemit = arcpy.ListDatasets("*Noise_Mitigation")[0]
     dataset_path = os.path.join(env.workspace, noisemit)
     env.workspace = dataset_path
     fcs = arcpy.ListFeatureClasses("*{}".format(name))
@@ -34,6 +34,8 @@ def get_versioned_fc(workspace, name):
         if arcpy.Exists(fc):
             fc_path = os.path.join(dataset_path, fc)
             return fc_path
+    else:
+        raise Exception("Unable to locate versioned feature class {}".format(name))
 
 
 def execute_tool(tool, params):

@@ -37,7 +37,7 @@ def compare_tables(sql_table, gdb_table):
             env.workspace = ingdb
             table_name = x.split("\\")[-1]
             if not arcpy.Exists(table_name):
-                arcpy.AddError("the target table and the gdb table are not found")
+                arcpy.AddError("the table {} was not found".format(x))
                 raise Exception()
             else:
                 pass
@@ -233,6 +233,8 @@ def clean_row(target_fields, field_names, _row):
                 #     except Exception as e:
                 #         pass
             elif target_type == "Date":
+                if type(_x) is datetime.datetime:
+                    _x = _x.date()
                 if not _x:
                     _x = None
             elif target_type == "Double":
@@ -630,7 +632,7 @@ class BuildingsUpdater:
                             del folio, f1, f2, new_att
                         except Exception as e:
                             arcpy.AddWarning(e)
-                            
+
                 arcpy.AddMessage("{} rows were scanned from the related table".format(n))
                 arcpy.AddMessage("{} names were added to the values dict".format(v))
                 arcpy.AddMessage("There are {} folioIds in the values dict".format(len(values.keys())))
